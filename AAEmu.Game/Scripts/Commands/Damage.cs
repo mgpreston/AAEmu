@@ -1,4 +1,4 @@
-using AAEmu.Game.Core.Managers;
+﻿using AAEmu.Game.Core.Managers;
 using AAEmu.Game.Models.Game;
 using AAEmu.Game.Models.Game.Char;
 using AAEmu.Game.Models.Game.Units;
@@ -8,7 +8,7 @@ namespace AAEmu.Game.Scripts.Commands;
 
 public class Damage : ICommand
 {
-    public string[] CommandNames { get; set; } = new string[] { "damage" };
+    public string[] CommandNames { get; set; } = ["damage"];
 
     public void OnLoad()
     {
@@ -50,7 +50,7 @@ public class Damage : ICommand
         var isPercent = false;
 
         // check if user added the % directly after the number, if so, trim it and set it as percent value
-        if (damageStr.EndsWith("%"))
+        if (damageStr.EndsWith('%'))
         {
             damageStr = damageStr.TrimEnd('%');
             isPercent = true;
