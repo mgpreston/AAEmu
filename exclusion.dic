@@ -452,7 +452,7 @@ Dist
 ushort
 attr
 zonename
-args
+typeof
 kitnames
 itemkits
 itemkitnames

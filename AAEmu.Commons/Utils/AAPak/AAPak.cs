@@ -299,11 +299,12 @@ public class AAPakFileHeader
         using BinaryWriter writer = new BinaryWriter(ms);
 
         // Init File Counts
-        var totalFileCount = _owner.files.Count + _owner.extraFiles.Count;
-        var filesToGo = _owner.files.Count;
+        var totalFileCount = _owner.pakFiles.Count + _owner.extraFiles.Count;
+        var filesToGo = _owner.pakFiles.Count;
         var extrasToGo = _owner.extraFiles.Count;
         int fileIndex = 0;
         int extrasIndex = 0;
+        var files = _owner.pakFiles.Values.ToList();
         for (int i = 0; i < totalFileCount; i++)
         {
             ms.Position = 0;
@@ -316,7 +317,7 @@ public class AAPakFileHeader
                 if (filesToGo > 0)
                 {
                     filesToGo--;
-                    pfi = _owner.files[fileIndex];
+                    pfi = files[fileIndex];
                     fileIndex++;
                 }
                 else
@@ -347,7 +348,7 @@ public class AAPakFileHeader
                 if (filesToGo > 0)
                 {
                     filesToGo--;
-                    pfi = _owner.files[fileIndex];
+                    pfi = files[fileIndex];
                     fileIndex++;
                 }
                 else
@@ -449,7 +450,7 @@ public class AAPakFileHeader
             FAT.Position = FAT.Length;
         }
         // Update header info
-        fileCount = (uint)_owner.files.Count;
+        fileCount = (uint)_owner.pakFiles.Count;
         extraFileCount = (uint)_owner.extraFiles.Count;
         // Stretch size for header
         FAT.SetLength(FAT.Length + headerSize);
@@ -474,7 +475,7 @@ public class AAPakFileHeader
         using BinaryReader reader = new BinaryReader(ms);
 
         // Read the Files
-        _owner.files.Clear();
+        _owner.pakFiles.Clear();
         _owner.extraFiles.Clear();
         var totalFileCount = fileCount + extraFileCount;
         var filesToGo = fileCount;
@@ -585,7 +586,7 @@ public class AAPakFileHeader
                     pfi.entryIndexNumber = fileIndexCounter;
 
                     filesToGo--;
-                    _owner.files.Add(pfi);
+                    _owner.pakFiles.Add(pfi.name, pfi);
                 }
                 else
                 if (extraToGo > 0)
@@ -618,7 +619,7 @@ public class AAPakFileHeader
                     pfi.deletedIndexNumber = deletedIndexCounter;
 
                     filesToGo--;
-                    _owner.files.Add(pfi);
+                    _owner.pakFiles.Add(pfi.name, pfi);
                 }
             }
             else
@@ -811,7 +812,7 @@ public class AAPak
     /// <summary>
     /// Virtual data to return as a null value for file details, can be used as to initialize a var to pass as a ref
     /// </summary>
-    public AAPakFileInfo nullAAPakFileInfo = new();
+    public static AAPakFileInfo nullAAPakFileInfo = new();
     public string _gpFilePath { get; private set; }
     public FileStream _gpFileStream { get; private set; }
     /// <summary>
@@ -833,7 +834,8 @@ public class AAPak
     /// <summary>
     /// List of all used files
     /// </summary>
-    public List<AAPakFileInfo> files = [];
+    // public List<AAPakFileInfo> files = [];
+    public Dictionary<string, AAPakFileInfo> pakFiles = [];
     /// <summary>
     /// List of all unused files, normally these are all named "__unused__"
     /// </summary>
@@ -1067,7 +1069,7 @@ public class AAPak
     /// <returns>Returns true if the read information makes a valid Pak file</returns>
     protected bool ReadHeader()
     {
-        files.Clear();
+        pakFiles.Clear();
         extraFiles.Clear();
         folders.Clear();
 
@@ -1154,7 +1156,7 @@ public class AAPak
 
     protected bool ReadCSVData()
     {
-        files.Clear();
+        pakFiles.Clear();
         extraFiles.Clear();
         folders.Clear();
 
@@ -1196,6 +1198,7 @@ public class AAPak
                 var fields = line.Split(';');
                 if (fields.Length == 10)
                 {
+
                     try
                     {
                         var fni = new AAPakFileInfo();
@@ -1213,7 +1216,7 @@ public class AAPak
                         fni.dummy2 = uint.Parse(fields[9]);
 
                         // TODO: check if this reads correctly
-                        files.Add(fni);
+                        pakFiles.Add(fni.name, fni);
                     }
                     catch
                     {
@@ -1236,7 +1239,7 @@ public class AAPak
         // There is no actual directory info stored in the pak file, so we just generate it based on filenames
         folders.Clear();
         if (!isOpen || !_header.isValid) return;
-        foreach (AAPakFileInfo pfi in files)
+        foreach (AAPakFileInfo pfi in pakFiles.Values)
         {
             if (pfi.name == string.Empty)
                 continue;
@@ -1266,7 +1269,7 @@ public class AAPak
     {
         var res = new List<AAPakFileInfo>();
         directoryName = directoryName.ToLower();
-        foreach (AAPakFileInfo pfi in files)
+        foreach (AAPakFileInfo pfi in pakFiles.Values)
         {
             // extract dir name
             string n = string.Empty;
@@ -1276,7 +1279,6 @@ public class AAPak
             }
             catch
             {
-                n = string.Empty;
             }
             if (n == directoryName)
                 res.Add(pfi);
@@ -1290,24 +1292,21 @@ public class AAPak
     /// <param name="filename">filename inside the pak of the requested file</param>
     /// <param name="fileInfo">Returns the AAPakFile info of the requested file or nullAAPakFileInfo if it does not exist</param>
     /// <returns>Returns true if the file was found</returns>
-    public bool GetFileByName(string filename, ref AAPakFileInfo fileInfo)
+    public bool GetFileByName(string filename, out AAPakFileInfo fileInfo)
     {
         var fn = ToPakSlashes(filename);
-        foreach (AAPakFileInfo pfi in files)
+        var found = pakFiles.TryGetValue(fn, out fileInfo);
+        if (!found)
         {
-            if (pfi.name == fn)
-            {
-                fileInfo = pfi;
-                return true;
-            }
+            fileInfo = nullAAPakFileInfo;
         }
-        fileInfo = nullAAPakFileInfo; // return null file if it fails
-        return false;
+
+        return found;
     }
 
-    public bool GetFileByIndex(int fileIndex, ref AAPakFileInfo fileInfo)
+    public bool GetFileByIndex(int fileIndex, out AAPakFileInfo fileInfo)
     {
-        foreach (AAPakFileInfo pfi in files)
+        foreach (AAPakFileInfo pfi in pakFiles.Values)
         {
             if (pfi.entryIndexNumber == fileIndex)
             {
@@ -1331,15 +1330,7 @@ public class AAPak
     /// <returns>Returns true if the file was found</returns>
     public bool FileExists(string filename)
     {
-        var fn = ToPakSlashes(filename);
-        foreach (AAPakFileInfo pfi in files)
-        {
-            if (pfi.name == fn)
-            {
-                return true;
-            }
-        }
-        return false;
+        return GetFileByName(filename, out var _);
     }
 
     /// <summary>
@@ -1359,8 +1350,7 @@ public class AAPak
     /// <returns>Returns a SubStream of file within the pak</returns>
     public Stream ExportFileAsStream(string fileName)
     {
-        AAPakFileInfo file = nullAAPakFileInfo;
-        if (GetFileByName(fileName, ref file) == true)
+        if (GetFileByName(fileName, out var file) == true)
         {
             return new SubStream(_gpFileStream, file.offset, file.size);
         }
@@ -1377,8 +1367,7 @@ public class AAPak
     /// <returns>Returns a SubStream of file within the pak</returns>
     public Stream ExportFileAsStreamCloned(string fileName)
     {
-        AAPakFileInfo file = nullAAPakFileInfo;
-        if (GetFileByName(fileName, ref file) == true)
+        if (GetFileByName(fileName, out var file) == true)
         {
 #pragma warning disable CA2000 // Dispose objects before losing scope
             var fs = new FileStream(_gpFilePath, FileMode.Open, FileAccess.Read);
@@ -1433,7 +1422,7 @@ public class AAPak
     /// <returns>Returns true if the location was found to be inside a valid file</returns>
     public bool FindFileByOffset(long offset, ref AAPakFileInfo fileInfo)
     {
-        foreach (AAPakFileInfo pfi in files)
+        foreach (AAPakFileInfo pfi in pakFiles.Values)
         {
             if ((offset >= pfi.offset) && (offset <= (pfi.offset + pfi.size + pfi.paddingSize)))
             {
@@ -1515,7 +1504,7 @@ public class AAPak
                 // If we have a previous file, expand it's padding area with the free space from this file
                 previousPfi.paddingSize += (int)pfi.size + pfi.paddingSize;
             }
-            files.Remove(pfi);
+            pakFiles.Remove(pfi.name);
         }
         else
         {
@@ -1532,7 +1521,7 @@ public class AAPak
 
             extraFiles.Add(eFile);
 
-            files.Remove(pfi);
+            pakFiles.Remove(pfi.name);
         }
         isDirty = true;
         return true;
@@ -1548,10 +1537,9 @@ public class AAPak
         if (readOnly)
             return false;
 
-        AAPakFileInfo pfi = nullAAPakFileInfo;
-        if (GetFileByName(filename, ref pfi))
+        if (GetFileByName(filename, out var file))
         {
-            return DeleteFile(pfi);
+            return DeleteFile(file);
         }
         else
         {
@@ -1625,7 +1613,7 @@ public class AAPak
         }
 
         // Add to files list
-        files.Add(newFile);
+        pakFiles.Add(newFile.name, newFile);
 
         isDirty = true;
 
@@ -1666,7 +1654,7 @@ public class AAPak
 
         bool addAsNew = true;
         // Try to find the existing file
-        if (GetFileByName(filename, ref pfi))
+        if (GetFileByName(filename, out pfi))
         {
             var reservedSizeMax = pfi.size + pfi.paddingSize;
             addAsNew = (sourceStream.Length > reservedSizeMax);
@@ -1692,7 +1680,7 @@ public class AAPak
     /// </summary>
     /// <param name="sourceFileName">Filename of the source file to be added</param>
     /// <param name="asFileName">Filename inside the Pak file to use</param>
-    /// <param name="autoSpareSpace">When set, tries to pre-allocate extra free space at the end of the file, this will be 25% of the filesize if used. If a "deleted file" is used, this parameter is ignored</param>
+    /// <param name="autoSpareSpace">When set, tries to pre-allocate extra free space at the end of the file, this will be 25% of the file size if used. If a "deleted file" is used, this parameter is ignored</param>
     /// <returns>Returns true on success</returns>
     public bool AddFileFromFile(string sourceFileName, string asFileName, bool autoSpareSpace)
     {
