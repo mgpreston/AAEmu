@@ -9,7 +9,6 @@ using System.Xml;
 using AAEmu.Commons.IO;
 using AAEmu.Commons.Utils;
 using AAEmu.Commons.Utils.XML;
-using AAEmu.Game.Core.Managers.AAEmu.Game.Core.Managers;
 using AAEmu.Game.Core.Managers.Id;
 using AAEmu.Game.Core.Network.Game;
 using AAEmu.Game.Core.Packets.G2C;
@@ -738,20 +737,17 @@ public class WorldManager : Singleton<WorldManager>, IWorldManager
 
     public GameObject GetGameObject(uint objId)
     {
-        _objects.TryGetValue(objId, out var ret);
-        return ret;
+        return _objects.GetValueOrDefault(objId);
     }
 
     public BaseUnit GetBaseUnit(uint objId)
     {
-        _baseUnits.TryGetValue(objId, out var ret);
-        return ret;
+        return _baseUnits.GetValueOrDefault(objId);
     }
 
     public Doodad GetDoodad(uint objId)
     {
-        _doodads.TryGetValue(objId, out var ret);
-        return ret;
+        return _doodads.GetValueOrDefault(objId);
     }
 
     public Doodad GetDoodadByDbId(uint dbId)
@@ -1401,4 +1397,23 @@ public class WorldManager : Singleton<WorldManager>, IWorldManager
         //    Logger.Info($"[Dungeon] could not delete the list of NpcEventSpawners for dungeon id={worldId}!");
         //}
     }
+
+    /// <summary>
+    /// Get a list of NPCs that have loot and are past the "make public" time
+    /// </summary>
+    /// <returns></returns>
+    public HashSet<Npc> GetNpcsToMakePublicLooting()
+    {
+        HashSet<Npc> temp;
+        lock (_npcs)
+        {
+            temp = [.. _npcs.Values];
+        }
+
+        var res = new HashSet<Npc>();
+        foreach (var item in temp.Where(item => item.LootingContainer.CanMakePublic()))
+            res.Add(item);
+        return res;
+    }
+
 }

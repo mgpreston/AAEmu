@@ -14,6 +14,7 @@ using AAEmu.Game.Models.Game.Char;
 using AAEmu.Game.Models.Game.Expeditions;
 using AAEmu.Game.Models.Game.Items;
 using AAEmu.Game.Models.Game.Items.Containers;
+using AAEmu.Game.Models.Game.Items.Loots;
 using AAEmu.Game.Models.Game.Items.Templates;
 using AAEmu.Game.Models.Game.NPChar;
 using AAEmu.Game.Models.Game.Skills;
@@ -444,97 +445,20 @@ public class Unit : BaseUnit, IUnit
         {
             switch (this)
             {
-                //case Npc:
-                //    break;
                 case Mate mate:
                     DespawnMate(WorldManager.Instance.GetCharacterByObjId(mate.OwnerObjId));
                     break;
                 case Character character:
                     DespawnMate(character);
                     break;
-                    //default:
-                    //    break;
             }
             return;
         }
 
-        var lootDropItems = ItemManager.Instance.CreateLootDropItems(ObjId, killer);
-        // Without moving the tagging into the root of unit, we need to do some work for loot distribution:
-        if (lootDropItems.Count > 0)
-        {
-            // Logger.Info($"Loot item count is {lootDropItems.Count}");
-            var unit = WorldManager.Instance.GetNpc(ObjId);
-            if (unit == null)
-            {
-                // Defaulting to the original code if this isn't an NPC
-                // Logger.Info($"Not an NPC for {ObjId}");
+        // Generate the loot for this Npc
+        LootingContainer.GenerateLoot(killer);
 
-                killer.BroadcastPacket(new SCLootableStatePacket(ObjId, true), true);
-
-            }
-            else
-            {
-                // it's an NPC, and we have a thing for this!
-                var eligiblePlayers = new HashSet<Character>();
-                if (unit.CharacterTagging.TagTeam != 0)
-                {
-                    // A team has tagging rights.
-                    // TODO: Master Looter
-                    var activeTeam = TeamManager.Instance.GetActiveTeam(unit.CharacterTagging.TagTeam);
-                    if (activeTeam.LootingRule.LootMethod == 0)
-                    {
-                        // FFA Loot
-                        foreach (var member in activeTeam.Members)
-                        {
-                            if (member?.Character == null)
-                                continue;
-
-                            if (GetDistanceTo(member.Character) <= 200)
-                            {
-                                eligiblePlayers.Add(member.Character);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // RoundRobin
-                        // TODO: Master Looter
-                        var nextEligibleLooter = TeamManager.Instance.GetNextEligibleLooter(unit.CharacterTagging.TagTeam, unit);
-                        if (nextEligibleLooter != null)
-                        {
-                            eligiblePlayers.Add(nextEligibleLooter);
-                            Logger.Warn($"Eligible team, adding {nextEligibleLooter}");
-                        }
-                        else
-                        {
-                            Logger.Warn("Next eligible looter was null");
-                        }
-                    }
-                }
-                else if (unit.CharacterTagging.Tagger != null)
-                {
-                    //A player has tag rights
-                    eligiblePlayers.Add(unit.CharacterTagging.Tagger);
-                    Logger.Warn($"Added tagger {unit.CharacterTagging.Tagger}");
-                }
-                if (eligiblePlayers.Count > 0)
-                {
-                    foreach (var eligible in eligiblePlayers)
-                    {
-                        if (eligible != null)
-                        {
-                            eligible.SendPacket(new SCLootableStatePacket(ObjId, true));
-                        }
-                        else
-                        {
-                            Logger.Warn($"Eligible player was null, eligible player count was {eligiblePlayers.Count}");
-                        }
-                    }
-                }
-            }
-
-        }
-
+        // Cleanup targeting and aggro packets
         if (CurrentTarget != null)
         {
             killer.SendPacketToPlayers([this, killer], new SCAiAggroPacket(killer.ObjId, 0));
