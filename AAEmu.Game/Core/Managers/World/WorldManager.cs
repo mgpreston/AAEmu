@@ -1415,5 +1415,4 @@ public class WorldManager : Singleton<WorldManager>, IWorldManager
             res.Add(item);
         return res;
     }
-
 }

@@ -96,7 +96,7 @@ public class Skill
         var character = caster as Character;
 
         unit.ConditionChance = true;
-
+        
         var requirementResult = UnitRequirementsGameData.Instance.CanUseSkill(Template, caster, casterCaster);
         if (requirementResult.ResultKey != SkillResultKeys.ok)
         {
@@ -1179,6 +1179,20 @@ public class Skill
         // Quick Hack
         if (packets.Packets.Count > 0)
             caster.BroadcastPacket(packets, true);
+
+        // Hack to consume TreasureMap items (don't know how else to add this)
+        if ((player != null) && (Template.Id == SkillsEnum.DigUpTreasureChestMarkedOnMap))
+        {
+            var treasureMapToUse = UnitRequirementsGameData.Instance.GetTreasureMapWithCoordinatesNearbyItem(player, 5.0);
+            if (treasureMapToUse != null)
+            {
+                consumedItems.Add((treasureMapToUse, 1));
+            }
+            else
+            {
+                Logger.Error($"Unable to find a treasure map to take from user {player.Name} ({player.Id}) when digging up treasure");
+            }
+        }
 
         if (!Cancelled)
         {
