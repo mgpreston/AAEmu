@@ -42,6 +42,7 @@ public sealed class Mate : Unit
     public List<uint> Skills { get; set; }
     public MateDb DbInfo { get; set; }
     public Task MateXpUpdateTask { get; set; }
+    public bool IsMaxLevel => Level >= ExperienceManager.Instance.MaxMateLevel;
 
     #region Attributes
 
@@ -535,46 +536,41 @@ public sealed class Mate : Unit
     /// <summary>
     /// Adds exp to this Mate and checks for level ups
     /// </summary>
-    /// <param name="exp"></param>
-    public void AddExp(int exp)
+    /// <param name="expDelta">The change in experience.</param>
+    /// <remarks>This method does nothing if <paramref name="expDelta"/> is negative or zero. Only a positive increase in experience can be applied.</remarks>
+    public void AddExp(int expDelta)
     {
-        if (exp == 0)
+        if (expDelta <= 0)
             return;
-        if (exp > 0)
-        {
-            var totalExp = (int)Math.Round(AppConfiguration.Instance.World.ExpRate * exp);
-            Experience += totalExp;
-        }
-        var owner = WorldManager.Instance.GetCharacterByObjId(OwnerObjId);
-        owner.SendPacket(new SCExpChangedPacket(ObjId, exp, false));
-        CheckLevelUp();
-    }
+        if (IsMaxLevel)
+            return;
 
-    private void CheckLevelUp()
-    {
-        var needExp = ExperienceManager.Instance.GetExpForLevel((byte)(Level + 1), true);
-        var leveledUp = false;
-        while (Experience >= needExp)
+        expDelta = (int)Math.Round(AppConfiguration.Instance.World.ExpRate * expDelta);
+        var newExperience = Experience + expDelta;
+        var newLevel = ExperienceManager.Instance.GetLevelFromExp(newExperience, Level, out var overflow, true);
+        var leveledUp = newLevel > Level;
+
+        // Prevent overflow - cap the experience at the amount for the highest level
+        if (newLevel >= ExperienceManager.Instance.MaxMateLevel)
         {
-            leveledUp = true;
-            Level++;
-            needExp = ExperienceManager.Instance.GetExpForLevel((byte)(Level + 1), true);
+            newExperience -= overflow;
         }
+
+        Experience = newExperience;
+        Level = newLevel;
 
         UpdateMateItemData();
         DbInfo.Xp = Experience;
         DbInfo.Level = Level;
 
+        var owner = WorldManager.Instance.GetCharacterByObjId(OwnerObjId);
+        owner.SendPacket(new SCExpChangedPacket(ObjId, expDelta, false));
+
         if (leveledUp)
         {
             BroadcastPacket(new SCLevelChangedPacket(ObjId, Level), true);
-            if (OwnerId > 0)
-            {
-                // Notify owner of the level up event
-                var owner = WorldManager.Instance.GetCharacterByObjId(OwnerObjId);
-                if (owner != null)
-                    owner.Events.OnMateLevelUp(this, new OnMateLevelUpArgs());
-            }
+            // Notify owner of the level up event
+            owner.Events.OnMateLevelUp(this, new OnMateLevelUpArgs());
             //StartRegen();
         }
     }
@@ -674,6 +670,8 @@ public sealed class Mate : Unit
         {
             return;
         }
+        if (IsMaxLevel)
+            return;
         MateXpUpdateTask = new MateXpUpdateTask(Owner, this);
         TaskManager.Instance.Schedule(MateXpUpdateTask, TimeSpan.FromSeconds(60));
         //Logger.Trace("[StartUpdateXp] The current timer has been started...");
