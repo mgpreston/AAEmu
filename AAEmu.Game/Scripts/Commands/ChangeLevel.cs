@@ -110,7 +110,7 @@ public class ChangeLevel : ICommand
                 }
             }
 
-            var expForLevel = ExperienceManager.Instance.GetExpForLevel(level) - targetPlayer.Experience;
+            var expForLevel = ExperienceManager.Instance.GetExpNeededToGivenLevel(targetPlayer.Experience, level);
             if (expForLevel > maxExpToAdd)
             {
                 maxExpToAdd = expForLevel;
@@ -122,16 +122,11 @@ public class ChangeLevel : ICommand
                 targetPlayer.AddExp(maxExpToAdd, true);
             }
 
-            // If the target level is bigger than player's current level, refill HP/MP and send level-up packet
+            // If the target level is bigger than player's current level, refill HP/MP
             if (level > targetPlayer.Level)
             {
-                targetPlayer.Level = level;
-                targetPlayer.Experience = expForLevel;
-
                 targetPlayer.Hp = targetPlayer.MaxHp;
                 targetPlayer.Mp = targetPlayer.MaxMp;
-
-                targetPlayer.BroadcastPacket(new SCLevelChangedPacket(targetPlayer.ObjId, level), true);
             }
         }
     }

@@ -119,7 +119,7 @@ public partial class Character : Unit, ICharacter
     public int PrevPoint { get; set; }
     public int Point { get; set; }
     public int Gift { get; set; }
-    public int Experience { get; set; }
+    public int Experience { get; private set; }
     public int RecoverableExp { get; set; }
     public DateTime Created { get; set; } // время создания персонажа
     public DateTime Updated { get; set; } // время внесения изменений
