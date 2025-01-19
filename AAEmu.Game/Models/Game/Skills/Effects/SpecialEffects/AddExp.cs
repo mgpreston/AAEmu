@@ -27,7 +27,7 @@ public class AddExp : SpecialEffectAction
     {
         if (caster is Character) { Logger.Debug("Special effects: AddExp value1 {0}, value2 {1}, value3 {2}, value4 {3}", value1, value2, value3, value4); }
 
-        if (!(target is Unit unit))
+        if (target is not Unit unit)
         {
             return;
         }
@@ -45,7 +45,17 @@ public class AddExp : SpecialEffectAction
         switch (target)
         {
             case Units.Mate mate:
-                mate.AddExp(expToAdd);
+                if (mate.IsMaxLevel)
+                {
+                    // Cancel the skill and don't consume the item/reagent (e.g. Companion Crust)
+                    skill.Cancelled = true;
+                    ((Unit)caster).SendErrorMessage(ErrorMessageType.InvalidTarget);
+                    // TODO: This doesn't stop the skill on the client, so it still performs the animation
+                }
+                else
+                {
+                    mate.AddExp(expToAdd);
+                }
                 break;
             case Character character:
                 character.AddExp(expToAdd, true);
