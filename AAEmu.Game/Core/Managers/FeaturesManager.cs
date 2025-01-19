@@ -16,8 +16,8 @@ public class FeaturesManager : Singleton<FeaturesManager>
         Logger.Info("Initializing Features ...");
         Fsets = new FeatureSet();
 
-        Fsets.PlayerLevelLimit = ExperienceManager.MaxPlayerLevel;
-        Fsets.MateLevelLimit = ExperienceManager.MaxMateLevel;
+        Fsets.PlayerLevelLimit = ExperienceManager.Instance.MaxPlayerLevel;
+        Fsets.MateLevelLimit = ExperienceManager.Instance.MaxMateLevel;
 
         // Allow House sales
         Fsets.Set(Feature.houseSale, true);

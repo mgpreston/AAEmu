@@ -1512,7 +1512,7 @@ public partial class Character : Unit, ICharacter
     public override int GetAbLevel(AbilityType type)
     {
         if (type == AbilityType.General) return Level;
-        return ExperienceManager.Instance.GetLevelFromExp(Abilities.Abilities[type].Exp);
+        return ExperienceManager.Instance.GetLevelFromExp(Abilities.Abilities[type].Exp, out _);
     }
 
     public void ResetSkillCooldown(uint skillId, bool gcd)

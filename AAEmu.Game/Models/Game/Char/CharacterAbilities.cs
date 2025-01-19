@@ -153,6 +153,6 @@ public class CharacterAbilities
 
     public byte GetAbilityLevel(AbilityType abilityType)
     {
-        return Abilities.TryGetValue(abilityType, out var ability) ? ExperienceManager.Instance.GetLevelFromExp(ability.Exp) : (byte)0;
+        return Abilities.TryGetValue(abilityType, out var ability) ? ExperienceManager.Instance.GetLevelFromExp(ability.Exp, out _) : (byte)0;
     }
 }
