@@ -27,7 +27,7 @@ public class QuestActObjAbilityLevel(QuestComponentTemplate parentComponent) : Q
         {
             // Single Ability check
             var ability = quest.Owner.Abilities.Abilities[AbilityId];
-            int abLevel = ExperienceManager.Instance.GetLevelFromExp(ability.Exp);
+            int abLevel = ExperienceManager.Instance.GetLevelFromExp(ability.Exp, out _);
             return abLevel >= Level;
         }
 
@@ -35,7 +35,7 @@ public class QuestActObjAbilityLevel(QuestComponentTemplate parentComponent) : Q
         for (var i = AbilityType.General + 1; i < AbilityType.None; i++)
         {
             var ability = quest.Owner.Abilities.Abilities[i];
-            int abLevel = ExperienceManager.Instance.GetLevelFromExp(ability.Exp);
+            int abLevel = ExperienceManager.Instance.GetLevelFromExp(ability.Exp, out _);
             if (abLevel < Level)
                 return false; // Fail check if any of the Abilities is below the required level
         }

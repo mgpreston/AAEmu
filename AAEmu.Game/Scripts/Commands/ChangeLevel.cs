@@ -26,7 +26,7 @@ public class ChangeLevel : ICommand
     public string GetCommandHelpText()
     {
         return $"Adds experience points needed to reach target <level>\n" +
-               $"Allowed range is 2-{ExperienceManager.MaxPlayerLevel} and {ExperienceManager.MaxMateLevel} for pets\n";
+               $"Allowed range is 2-{ExperienceManager.Instance.MaxPlayerLevel} and {ExperienceManager.Instance.MaxMateLevel} for pets\n";
     }
 
     public void Execute(Character character, string[] args, IMessageOutput messageOutput)
@@ -48,10 +48,10 @@ public class ChangeLevel : ICommand
 
         if (character.CurrentTarget is Mate mate)
         {
-            if (level <= 1 || level > ExperienceManager.MaxMateLevel)
+            if (level <= 1 || level > ExperienceManager.Instance.MaxMateLevel)
             {
                 CommandManager.SendErrorText(this, messageOutput,
-                    $"Allowed level range: 2-{ExperienceManager.MaxMateLevel}|r");
+                    $"Allowed level range: 2-{ExperienceManager.Instance.MaxMateLevel}|r");
                 return;
             }
 
@@ -68,10 +68,10 @@ public class ChangeLevel : ICommand
         }
         else
         {
-            if (level <= 1 || level > ExperienceManager.MaxPlayerLevel)
+            if (level <= 1 || level > ExperienceManager.Instance.MaxPlayerLevel)
             {
                 CommandManager.SendErrorText(this, messageOutput,
-                    $"Allowed level range: 2-{ExperienceManager.MaxPlayerLevel}|r");
+                    $"Allowed level range: 2-{ExperienceManager.Instance.MaxPlayerLevel}|r");
                 return;
             }
 
@@ -110,7 +110,7 @@ public class ChangeLevel : ICommand
                 }
             }
 
-            var expForLevel = ExperienceManager.Instance.GetExpForLevel(level) - targetPlayer.Experience;
+            var expForLevel = ExperienceManager.Instance.GetExpNeededToGivenLevel(targetPlayer.Experience, level);
             if (expForLevel > maxExpToAdd)
             {
                 maxExpToAdd = expForLevel;
@@ -122,16 +122,11 @@ public class ChangeLevel : ICommand
                 targetPlayer.AddExp(maxExpToAdd, true);
             }
 
-            // If the target level is bigger than player's current level, refill HP/MP and send level-up packet
+            // If the target level is bigger than player's current level, refill HP/MP
             if (level > targetPlayer.Level)
             {
-                targetPlayer.Level = level;
-                targetPlayer.Experience = expForLevel;
-
                 targetPlayer.Hp = targetPlayer.MaxHp;
                 targetPlayer.Mp = targetPlayer.MaxMp;
-
-                targetPlayer.BroadcastPacket(new SCLevelChangedPacket(targetPlayer.ObjId, level), true);
             }
         }
     }

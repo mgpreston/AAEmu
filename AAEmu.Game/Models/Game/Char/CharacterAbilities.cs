@@ -52,12 +52,13 @@ public class CharacterAbilities
     public void AddActiveExp(int exp)
     {
         // TODO SCExpChangedPacket
+        var maxLevelExp = ExperienceManager.Instance.GetExpForLevel(ExperienceManager.Instance.MaxPlayerLevel);
         if (Owner.Ability1 != AbilityType.None)
-            Abilities[Owner.Ability1].Exp = Math.Min(Abilities[Owner.Ability1].Exp + exp, ExperienceManager.Instance.GetExpForLevel(55));
+            Abilities[Owner.Ability1].Exp = Math.Min(Abilities[Owner.Ability1].Exp + exp, maxLevelExp);
         if (Owner.Ability2 != AbilityType.None)
-            Abilities[Owner.Ability2].Exp = Math.Min(Abilities[Owner.Ability2].Exp + exp, ExperienceManager.Instance.GetExpForLevel(55));
+            Abilities[Owner.Ability2].Exp = Math.Min(Abilities[Owner.Ability2].Exp + exp, maxLevelExp);
         if (Owner.Ability3 != AbilityType.None)
-            Abilities[Owner.Ability3].Exp = Math.Min(Abilities[Owner.Ability3].Exp + exp, ExperienceManager.Instance.GetExpForLevel(55));
+            Abilities[Owner.Ability3].Exp = Math.Min(Abilities[Owner.Ability3].Exp + exp, maxLevelExp);
     }
 
     public void Swap(AbilityType oldAbilityId, AbilityType abilityId)
@@ -153,6 +154,6 @@ public class CharacterAbilities
 
     public byte GetAbilityLevel(AbilityType abilityType)
     {
-        return Abilities.TryGetValue(abilityType, out var ability) ? ExperienceManager.Instance.GetLevelFromExp(ability.Exp) : (byte)0;
+        return Abilities.TryGetValue(abilityType, out var ability) ? ExperienceManager.Instance.GetLevelFromExp(ability.Exp, out _) : (byte)0;
     }
 }

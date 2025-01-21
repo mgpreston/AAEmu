@@ -119,7 +119,7 @@ public partial class Character : Unit, ICharacter
     public int PrevPoint { get; set; }
     public int Point { get; set; }
     public int Gift { get; set; }
-    public int Experience { get; set; }
+    public int Experience { get; private set; }
     public int RecoverableExp { get; set; }
     public DateTime Created { get; set; } // время создания персонажа
     public DateTime Updated { get; set; } // время внесения изменений
@@ -1345,21 +1345,39 @@ public partial class Character : Unit, ICharacter
         return false;
     }
 
-    public void AddExp(int exp, bool shouldAddAbilityExp)
+    public void AddExp(int expDelta, bool shouldAddAbilityExp)
     {
-        if (exp == 0)
+        if (expDelta == 0)
             return;
 
-        if (exp > 0)
+        if (expDelta > 0)
         {
-            var totalExp = exp * AppConfiguration.Instance.World.ExpRate;
-            exp = (int)totalExp;
+            expDelta = (int)(expDelta * AppConfiguration.Instance.World.ExpRate);
         }
-        Experience = Math.Min(Experience + exp, ExperienceManager.Instance.GetExpForLevel(55));
+        
+        var newExperience = Experience + expDelta;
+        var newLevel = ExperienceManager.Instance.GetLevelFromExp(newExperience, Level, out var overflow);
+        var leveledUp = newLevel > Level;
+        
+        // Prevent overflow - cap the experience at the amount for the highest level
+        if (newLevel >= ExperienceManager.Instance.MaxPlayerLevel)
+        {
+            newExperience -= overflow;
+        }
+        
+        Experience = newExperience;
+        Level = newLevel;
+        
         if (shouldAddAbilityExp)
-            Abilities.AddActiveExp(exp); // TODO ... or all?
-        SendPacket(new SCExpChangedPacket(ObjId, exp, shouldAddAbilityExp));
-        CheckLevelUp();
+            Abilities.AddActiveExp(expDelta); // TODO ... or all?
+        
+        SendPacket(new SCExpChangedPacket(ObjId, expDelta, shouldAddAbilityExp));
+
+        if (leveledUp)
+        {
+            Expedition?.OnCharacterRefresh(this);
+            BroadcastPacket(new SCLevelChangedPacket(ObjId, Level), true);
+        }
 
         //Quests.OnLevelUp(); // TODO added for quest Id=5967
         // инициируем событие
@@ -1370,34 +1388,30 @@ public partial class Character : Unit, ICharacter
         }
     }
 
-    public void CheckLevelUp()
+    private void ValidateAndFixExpAndLevel()
     {
-        var needExp = ExperienceManager.Instance.GetExpForLevel((byte)(Level + 1));
-        var change = false;
-        while (Experience >= needExp)
-        {
-            change = true;
-            Level++;
-            needExp = ExperienceManager.Instance.GetExpForLevel((byte)(Level + 1));
-            Expedition?.OnCharacterRefresh(this);
-        }
-
-        if (change)
-        {
-            BroadcastPacket(new SCLevelChangedPacket(ObjId, Level), true);
-        }
-    }
-
-    public void CheckExp()
-    {
+        // Check if player has too little exp to be at their current level, and give them enough to maintain it
         var needExp = ExperienceManager.Instance.GetExpForLevel(Level);
         if (Experience < needExp)
-            Experience = needExp;
-        needExp = ExperienceManager.Instance.GetExpForLevel((byte)(Level + 1));
-        while (Experience >= needExp)
         {
-            Level++;
-            needExp = ExperienceManager.Instance.GetExpForLevel((byte)(Level + 1));
+            Experience = needExp;
+            return;
+        }
+
+        // Check if player has enough exp to be at a higher level, and grant them the new level
+        var newLevel = ExperienceManager.Instance.GetLevelFromExp(Experience, Level, out var overflow);
+        var leveledUp = newLevel > Level;
+        
+        // Prevent overflow - cap the experience at the amount for the highest level
+        if (newLevel >= ExperienceManager.Instance.MaxPlayerLevel)
+        {
+            Experience -= overflow;
+        }
+        
+        Level = newLevel;
+        
+        if (leveledUp)
+        {
             Expedition?.OnCharacterRefresh(this);
         }
     }
@@ -1512,7 +1526,7 @@ public partial class Character : Unit, ICharacter
     public override int GetAbLevel(AbilityType type)
     {
         if (type == AbilityType.General) return Level;
-        return ExperienceManager.Instance.GetLevelFromExp(Abilities.Abilities[type].Exp);
+        return ExperienceManager.Instance.GetLevelFromExp(Abilities.Abilities[type].Exp, out _);
     }
 
     public void ResetSkillCooldown(uint skillId, bool gcd)
@@ -2097,7 +2111,7 @@ public partial class Character : Unit, ICharacter
                         character.Hp = character.MaxHp;
                     if (character.Mp > character.MaxMp)
                         character.Mp = character.MaxMp;
-                    character.CheckExp();
+                    character.ValidateAndFixExpAndLevel();
                     character.PostUpdateCurrentHp(character, 0, character.Hp, KillReason.Unknown);
                 }
             }
@@ -2214,7 +2228,7 @@ public partial class Character : Unit, ICharacter
                         character.Hp = character.MaxHp;
                     if (character.Mp > character.MaxMp)
                         character.Mp = character.MaxMp;
-                    character.CheckExp();
+                    character.ValidateAndFixExpAndLevel();
                     character.PostUpdateCurrentHp(character, 0, character.Hp, KillReason.Unknown);
                 }
             }

@@ -63,6 +63,7 @@ public sealed class GameService : IHostedService, IDisposable
 
         WorldManager.Instance.Load();
         WorldIdManager.Instance.Initialize();
+        ExperienceManager.Instance.Load();
         FeaturesManager.Initialize();
 
         LocalizationManager.Instance.Load();
@@ -112,7 +113,6 @@ public sealed class GameService : IHostedService, IDisposable
         SphereQuestManager.Instance.Initialize();
 
         FormulaManager.Instance.Load();
-        ExperienceManager.Instance.Load();
         AiPathsManager.Instance.Load();
 
         TlIdManager.Instance.Initialize();
