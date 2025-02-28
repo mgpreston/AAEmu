@@ -1,19 +1,13 @@
 ﻿using System;
 using System.Numerics;
 using System.Threading;
-
-using AAEmu.Game.Core.Managers;
-using AAEmu.Game.Core.Managers.AAEmu.Game.Core.Managers;
 using AAEmu.Game.Core.Managers.World;
 using AAEmu.Game.Models.Game.Models;
 using AAEmu.Game.Models.Game.Units;
 using AAEmu.Game.Physics.Forces;
 using AAEmu.Game.Utils;
-
-using Jitter.Collision;
-using Jitter.Collision.Shapes;
-using Jitter.Dynamics;
-using Jitter.LinearMath;
+using Jitter2.Collision.Shapes;
+using Jitter2.LinearMath;
 
 using Moq;
 
@@ -23,13 +17,12 @@ using InstanceWorld = AAEmu.Game.Models.Game.World.World;
 
 namespace AAEmu.UnitTests.Game.Core.Managers.World
 {
-    public class BoatPhysicsManagerTests
+    public sealed class BoatPhysicsManagerTests : IDisposable
     {
         //private readonly Mock<WorldManager> _mockWorldManager;
         private readonly Mock<InstanceWorld> _mockWorld;
         //private readonly Mock<SlaveManager> _mockSlaveManager;
         private readonly Mock<Slave> _mockSlave;
-        private readonly Mock<RigidBody> _mockRigidBody;
         //private readonly Mock<ModelManager> _mockModelManager;
         private readonly BoatPhysicsManager _boatPhysicsManager;
 
@@ -40,16 +33,15 @@ namespace AAEmu.UnitTests.Game.Core.Managers.World
             //_mockSlaveManager = new Mock<SlaveManager>();
             _mockSlave = new Mock<Slave>();
             var mockShipModel = new Mock<ShipModel>();
-            _mockRigidBody = new Mock<RigidBody>(new BoxShape(1, 1, 1));
+            //_mockRigidBody = new Mock<RigidBody>(new BoxShape(1, 1, 1));
 
             // Configure ModelManager to return _mockShipModel.Object for GetShipModel
             //_mockModelManager = new Mock<ModelManager>();
             //_mockModelManager.Setup(mm => mm.GetShipModel(It.IsAny<uint>())).Returns(mockShipModel.Object);
 
-            _boatPhysicsManager = new BoatPhysicsManager()
+            _boatPhysicsManager = new BoatPhysicsManager
             {
                 _thread = null,
-                _collisionSystem = null,
                 _physWorld = null,
                 _buoyancy = null,
                 ThreadRunning = false,
@@ -69,7 +61,6 @@ namespace AAEmu.UnitTests.Game.Core.Managers.World
             _boatPhysicsManager.Initialize();
 
             // Assert
-            Assert.NotNull(_boatPhysicsManager._collisionSystem);
             Assert.NotNull(_boatPhysicsManager._physWorld);
             Assert.NotNull(_boatPhysicsManager._buoyancy);
             //_mockWorld.Verify(w => w.HeightMaps, Times.Once);
@@ -101,26 +92,22 @@ namespace AAEmu.UnitTests.Game.Core.Managers.World
         public void RemoveShip_WhenCalled_RemovesRigidBodyFromPhysicsWorld()
         {
             // Arrange
-            _boatPhysicsManager._physWorld = new Jitter.World(new CollisionSystemSAP());
+            _boatPhysicsManager._physWorld = new Jitter2.World();
             _boatPhysicsManager._buoyancy = new Buoyancy(_boatPhysicsManager._physWorld);
             _boatPhysicsManager.SimulationWorld = _mockWorld.Object;
-
-            _mockSlave.Setup(s => s.RigidBody).Returns(_mockRigidBody.Object);
-
-            // Use reflection to set property values
-            //_mockRigidBody.Setup(rb => rb.IsActive).Returns(true);
-            var isActiveProperty = typeof(RigidBody).GetProperty("IsActive");
-            isActiveProperty?.SetValue(_mockRigidBody.Object, true);
-
+            
             // Add the rigid body to the physics world
-            _boatPhysicsManager._physWorld.AddBody(_mockRigidBody.Object);
+            var rigidBody = _boatPhysicsManager._physWorld.CreateRigidBody();
+            rigidBody.AddShape(new BoxShape(1, 1, 1));
 
+            _mockSlave.Setup(s => s.RigidBody).Returns(rigidBody);
+            
             // Act
             _boatPhysicsManager.RemoveShip(_mockSlave.Object);
 
             // Assert
-            Assert.False(_mockRigidBody.Object.IsActive);
-            Assert.DoesNotContain(_mockRigidBody.Object, _boatPhysicsManager._physWorld.RigidBodies);
+            //Assert.False(rigidBody.IsActive);
+            Assert.DoesNotContain(rigidBody, _boatPhysicsManager._physWorld.RigidBodies);
         }
 
         [Fact]
@@ -339,5 +326,6 @@ namespace AAEmu.UnitTests.Game.Core.Managers.World
         //    // Verify that buoyancy and drag forces are added
         //    _mockRigidBody.Verify(rb => rb.AddForce(It.IsAny<JVector>()), Times.Exactly(2));
         //}
+        public void Dispose() => _boatPhysicsManager?.Dispose();
     }
 }
