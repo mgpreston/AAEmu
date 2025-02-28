@@ -13,10 +13,9 @@ using AAEmu.Game.Physics.Forces;
 using AAEmu.Game.Physics.Util;
 using AAEmu.Game.Utils;
 
-using Jitter.Collision;
-using Jitter.Collision.Shapes;
-using Jitter.Dynamics;
-using Jitter.LinearMath;
+using Jitter2.Collision.Shapes;
+using Jitter2.Dynamics;
+using Jitter2.LinearMath;
 
 using NLog;
 
@@ -25,14 +24,13 @@ using InstanceWorld = AAEmu.Game.Models.Game.World.World;
 namespace AAEmu.Game.Core.Managers.World
 {
     // ReSharper disable HollowTypeName
-    public class BoatPhysicsManager
+    public class BoatPhysicsManager : IDisposable
     {
         private float TargetPhysicsTps { get; set; } = 100f;
         internal Thread _thread;
         private static Logger Logger { get; } = LogManager.GetCurrentClassLogger();
 
-        internal CollisionSystem _collisionSystem;
-        internal Jitter.World _physWorld;
+        internal Jitter2.World _physWorld;
         internal Buoyancy _buoyancy;
         public bool ThreadRunning { get; set; }
         public InstanceWorld SimulationWorld { get; set; }
@@ -42,8 +40,7 @@ namespace AAEmu.Game.Core.Managers.World
 
         public void Initialize()
         {
-            _collisionSystem = new CollisionSystemSAP();
-            _physWorld = new Jitter.World(_collisionSystem);
+            _physWorld = new Jitter2.World();
             _buoyancy = new Buoyancy(_physWorld);
             _buoyancy.UseOwnFluidArea(CustomWater);
 
@@ -59,9 +56,7 @@ namespace AAEmu.Game.Core.Managers.World
                 for (var x = 0; x < dx; x++)
                     for (var y = 0; y < dz; y++)
                         hmapTerrain[x, y] = (float)(hmap[x, y] / heightMaxCoefficient);
-                var terrain = new TerrainShape(hmapTerrain, 2.0f, 2.0f);
-                var body = new RigidBody(terrain) { IsStatic = true };
-                _physWorld.AddBody(body);
+                _physWorld.AddTerrain(hmapTerrain, 2.0f, 2.0f);
             }
             catch (Exception e)
             {
@@ -79,8 +74,7 @@ namespace AAEmu.Game.Core.Managers.World
         public void StartPhysics()
         {
             ThreadRunning = true;
-            _thread = new Thread(PhysicsThread);
-            _thread.Name = "Physics-" + (SimulationWorld?.Name ?? "???");
+            _thread = new Thread(PhysicsThread) { Name = "Physics-" + (SimulationWorld?.Name ?? "???") };
             _thread.Start();
         }
 
@@ -172,7 +166,7 @@ namespace AAEmu.Game.Core.Managers.World
             var zDelta = slaveRigidBody.Position.Y - slave.Transform.World.Position.Z;
 
             slave.Transform.Local.Translate(xDelta, yDelta, zDelta);
-            var rotation = JQuaternion.CreateFromMatrix(slaveRigidBody.Orientation);
+            var rotation = slaveRigidBody.Orientation;
             slave.Transform.Local.ApplyFromQuaternion(rotation.X, rotation.Z, rotation.Y, rotation.W);
         }
 
@@ -186,15 +180,15 @@ namespace AAEmu.Game.Core.Managers.World
             }
 
             var slaveBox = new BoxShape(shipModel.MassBoxSizeX, shipModel.MassBoxSizeZ, shipModel.MassBoxSizeY);
-            var rigidBody = new RigidBody(slaveBox);
+            var rigidBody = _physWorld.CreateRigidBody();
+            rigidBody.AddShape(slaveBox);
             rigidBody.Position = new JVector(slave.Transform.World.Position.X, slave.Transform.World.Position.Z, slave.Transform.World.Position.Y);
-            rigidBody.Orientation = JMatrix.CreateRotationY(slave.Transform.World.Rotation.Z);
-            rigidBody.Mass = shipModel.Mass;
-            rigidBody.IsActive = true;
+            rigidBody.Orientation = JQuaternion.CreateFromMatrix(JMatrix.CreateRotationY(slave.Transform.World.Rotation.Z));
             rigidBody.IsStatic = false;
-
+            rigidBody.SetMassInertia(shipModel.Mass);
+            rigidBody.SetActivationState(true);
+            
             _buoyancy.Add(rigidBody, 3);
-            _physWorld.AddBody(rigidBody);
             slave.RigidBody = rigidBody;
             Logger.Debug($"AddShip {slave.Name} -> {SimulationWorld.Name}");
         }
@@ -204,9 +198,9 @@ namespace AAEmu.Game.Core.Managers.World
             if (slave.RigidBody == null) return;
 
             var rigidBody = slave.RigidBody;
-            rigidBody.IsActive = false;
+            rigidBody.SetActivationState(false);
             _buoyancy.Remove(rigidBody);
-            _physWorld.RemoveBody(rigidBody);
+            _physWorld.Remove(rigidBody);
             slave.RigidBody = null;
             Logger.Debug($"RemoveShip {slave.Name} <- {SimulationWorld.Name}");
         }
@@ -227,37 +221,37 @@ namespace AAEmu.Game.Core.Managers.World
                 var buoyancyForce = new JVector(0, submergedDepth * shipModel.Mass * shipModel.WaterDensity * 9.81f, 0);
                 rigidBody.AddForce(buoyancyForce);
 
-                var dragForce = new JVector(-rigidBody.LinearVelocity.X * shipModel.WaterResistance,
-                    -rigidBody.LinearVelocity.Y * shipModel.WaterResistance,
-                    -rigidBody.LinearVelocity.Z * shipModel.WaterResistance);
+                var dragForce = new JVector(-rigidBody.Velocity.X * shipModel.WaterResistance,
+                    -rigidBody.Velocity.Y * shipModel.WaterResistance,
+                    -rigidBody.Velocity.Z * shipModel.WaterResistance);
                 rigidBody.AddForce(dragForce);
             }
             else if (isOnLand)
             {
                 // Apply ground friction and stop the ship
                 const float GroundFriction = 0.4f; // Sand: around 0.4
-                var frictionForce = new JVector(-rigidBody.LinearVelocity.X * GroundFriction,
+                var frictionForce = new JVector(-rigidBody.Velocity.X * GroundFriction,
                     0,
-                    -rigidBody.LinearVelocity.Z * GroundFriction);
+                    -rigidBody.Velocity.Z * GroundFriction);
                 rigidBody.AddForce(frictionForce);
 
                 // Gradually reduce speed
                 const float CollisionDamping = 0.5f;
-                rigidBody.LinearVelocity *= CollisionDamping;
+                rigidBody.Velocity *= CollisionDamping;
                 rigidBody.AngularVelocity *= CollisionDamping;
 
                 // Stop the ship and apply roll
-                if (rigidBody.LinearVelocity.Length() < 0.01f)
+                if (rigidBody.Velocity.Length() < 0.01f)
                 {
-                    rigidBody.LinearVelocity = JVector.Zero;
+                    rigidBody.Velocity = JVector.Zero;
                     rigidBody.AngularVelocity = JVector.Zero;
 
                     // Apply roll to the ship
-                    var rollAngle = GetRollAngle(rigidBody.Orientation);
+                    var rollAngle = GetRollAngle(JMatrix.CreateFromQuaternion(rigidBody.Orientation));
                     if (Math.Abs(rollAngle) < 0.1f)
                     {
                         var correctionTorque = new JVector(0, 0, -rollAngle * rigidBody.Mass * 0.1f);
-                        rigidBody.AddTorque(correctionTorque);
+                        rigidBody.AddForce(correctionTorque);
                     }
 
                     // Disable control
@@ -324,7 +318,7 @@ namespace AAEmu.Game.Core.Managers.World
         private void ApplyCollisions(Slave slave, RigidBody rigidBody, ShipModel shipModel)
         {
             var floor = WorldManager.Instance.GetHeight(slave.Transform);
-            var boxSize = rigidBody.Shape.BoundingBox.Max - rigidBody.Shape.BoundingBox.Min;
+            //var boxSize = rigidBody.Shape.BoundingBox.Max - rigidBody.Shape.BoundingBox.Min;
             var boatBottom = rigidBody.Position.Y/* - boxSize.Y / 2*/ - shipModel.MassBoxSizeZ / 2 - shipModel.KeelHeight + shipModel.MassCenterZ;
 
             if (boatBottom < floor)
@@ -336,7 +330,7 @@ namespace AAEmu.Game.Core.Managers.World
 
                 // Gradually reduce speed
                 var collisionDamping = 0.5f;
-                rigidBody.LinearVelocity *= collisionDamping;
+                rigidBody.Velocity *= collisionDamping;
                 rigidBody.AngularVelocity *= collisionDamping;
 
                 Logger.Debug($"Collision detected. Boat adjusted position: {rigidBody.Position}");
@@ -385,12 +379,12 @@ namespace AAEmu.Game.Core.Managers.World
             // Logger.Debug($"Slave: {slave.Name}, Throttle: {throttleFloatVal:F1} ({slave.ThrottleRequest}), Steering {steeringFloatVal:F1} ({slave.SteeringRequest}), speed: {slave.Speed}, rotSpeed: {slave.RotSpeed}");
 
             // Calculate some stuff for later
-            var boxSize = rigidBody.Shape.BoundingBox.Max - rigidBody.Shape.BoundingBox.Min;
+            var boxSize = rigidBody.Shapes[0].WorldBoundingBox.Max - rigidBody.Shapes[0].WorldBoundingBox.Min;
             var tubeVolume = shipModel.TubeLength * shipModel.TubeRadius * MathF.PI;
             var solidVolume = MathF.Abs(rigidBody.Mass - tubeVolume);
 
             // Get current rotation of the ship
-            var rpy = PhysicsUtil.GetYawPitchRollFromMatrix(rigidBody.Orientation);
+            var rpy = PhysicsUtil.GetYawPitchRollFromMatrix(JMatrix.CreateFromQuaternion(rigidBody.Orientation));
             var slaveRotRad = rpy.Item1 + 90 * (MathF.PI / 180.0f);
 
             var forceThrottle = slave.Speed * slave.MoveSpeedMul; // Not sure if correct, but it feels correct
@@ -405,7 +399,7 @@ namespace AAEmu.Game.Core.Managers.World
             // Calculate Steering Force based on bounding box
             var steerForce = -steer * (solidVolume * boxSize.X * boxSize.Y / 172.5f * 2f); // Totally random value, but it feels right
             //var steerForce = -steer * solidVolume ;
-            rigidBody.AddTorque(new JVector(0, steerForce, 0));
+            rigidBody.AddForce(new JVector(0, steerForce, 0));
         }
 
         private void SendUpdatedMovementData(Slave slave, RigidBody rigidBody)
@@ -414,7 +408,7 @@ namespace AAEmu.Game.Core.Managers.World
             moveType.UseSlaveBase(slave);
 
             // Get current rotation of the ship
-            var rpy = PhysicsUtil.GetYawPitchRollFromMatrix(rigidBody.Orientation);
+            var rpy = PhysicsUtil.GetYawPitchRollFromMatrix(JMatrix.CreateFromQuaternion(rigidBody.Orientation));
             // Insert new Rotation data into MoveType
             var (rotZ, rotY, rotX) = MathUtil.GetSlaveRotationFromDegrees(rpy.Item1, rpy.Item2, rpy.Item3);
             moveType.RotationX = rotX;
@@ -422,22 +416,22 @@ namespace AAEmu.Game.Core.Managers.World
             moveType.RotationZ = rotZ;
 
             // Fill in the Velocity Data into the MoveType
-            moveType.Velocity = new Vector3(rigidBody.LinearVelocity.X, rigidBody.LinearVelocity.Z, rigidBody.LinearVelocity.Y);
+            moveType.Velocity = new Vector3(rigidBody.Velocity.X, rigidBody.Velocity.Z, rigidBody.Velocity.Y);
             moveType.AngVelX = rigidBody.AngularVelocity.X;
             moveType.AngVelY = rigidBody.AngularVelocity.Z;
             moveType.AngVelZ = rigidBody.AngularVelocity.Y;
 
             // Seems display the correct speed this way, but what happens if you go over the bounds ?
-            moveType.VelX = (short)(rigidBody.LinearVelocity.X * 1024);
-            moveType.VelY = (short)(rigidBody.LinearVelocity.Z * 1024);
-            moveType.VelZ = (short)(rigidBody.LinearVelocity.Y * 1024);
+            moveType.VelX = (short)(rigidBody.Velocity.X * 1024);
+            moveType.VelY = (short)(rigidBody.Velocity.Z * 1024);
+            moveType.VelZ = (short)(rigidBody.Velocity.Y * 1024);
 
             // Do not allow the body to flip
             //slave.RigidBody.Orientation = JMatrix.CreateFromYawPitchRoll(rpy.Item1, 0, 0); // TODO: Fix me with proper physics
 
             // Apply new Location/Rotation to GameObject
             slave.Transform.Local.SetPosition(rigidBody.Position.X, rigidBody.Position.Z, rigidBody.Position.Y);
-            var jRot = JQuaternion.CreateFromMatrix(rigidBody.Orientation);
+            var jRot = rigidBody.Orientation;
             slave.Transform.Local.ApplyFromQuaternion(jRot.X, jRot.Z, jRot.Y, jRot.W);
 
             // Send the packet
@@ -446,5 +440,7 @@ namespace AAEmu.Game.Core.Managers.World
             // Update all to main Slave and it's children
             slave.Transform.FinalizeTransform();
         }
+
+        public void Dispose() => _physWorld?.Dispose();
     }
 }
