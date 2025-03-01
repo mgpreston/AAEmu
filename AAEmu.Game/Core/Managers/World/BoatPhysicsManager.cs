@@ -50,8 +50,8 @@ namespace AAEmu.Game.Core.Managers.World
             {
                 var hmap = WorldManager.Instance.GetWorld(0).HeightMaps;
                 var heightMaxCoefficient = WorldManager.Instance.GetWorld(0).HeightMaxCoefficient;
-                var dx = hmap.GetLength(0);
-                var dz = hmap.GetLength(1);
+                var dx = hmap.GetLength(0) / 100;
+                var dz = hmap.GetLength(1) / 100;
                 var hmapTerrain = new float[dx, dz];
                 for (var x = 0; x < dx; x++)
                     for (var y = 0; y < dz; y++)

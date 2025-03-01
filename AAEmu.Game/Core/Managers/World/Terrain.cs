@@ -3,23 +3,46 @@ using System.Diagnostics.Contracts;
 using Jitter2.Collision.Shapes;
 using Jitter2.Dynamics;
 using Jitter2.LinearMath;
+using NLog;
 
 namespace AAEmu.Game.Core.Managers.World;
 
 public static class Terrain
 {
+    private static readonly Logger _logger = LogManager.GetCurrentClassLogger();    
+
+    
     [Pure]
     public static TriangleMesh CreateMesh(float[,] heights, float scaleX, float scaleZ)
     {
         var heightsLength0 = heights.GetLength(0);
         var heightsLength1 = heights.GetLength(1);
 
-        var triangleList = new List<JTriangle>();
+        var total = (heightsLength0 - 1) * (heightsLength1 - 1);
+        var counter = 0;
+        var lastPercent = 0;
+        
+        var triangleList = new List<JTriangle>(total);
 
-        for (var index = 0; index < (heightsLength0 - 1) * (heightsLength1 - 1); index++)
+        for (var index = 0; index < total; index++)
         {
             var quadIndexX = index % (heightsLength0 - 1);
             var quadIndexZ = index / (heightsLength0 - 1);
+
+            if (counter > 10000)
+            {
+                counter = 0;
+                var percent = (int)(100f / total * index);
+                if (percent != lastPercent)
+                {
+                    lastPercent = percent;
+                    _logger.Info("Loading terrain for heightmap at {0}%", percent);
+                }
+            }
+            else
+            {
+                counter++;
+            }
 
             triangleList.Add(new JTriangle(
                 new JVector((0 + quadIndexX + 0) * scaleX, heights[0 + quadIndexX + 0, 0 + quadIndexZ + 0],
@@ -68,5 +91,18 @@ public static class Terrain
         terrain.IsStatic = true;
 
         return terrain;
+    }
+}
+
+public class TerrainShape : RigidBodyShape
+{
+    public override void SupportMap(in JVector direction, out JVector result)
+    {
+        throw new System.NotImplementedException();
+    }
+
+    public override void GetCenter(out JVector point)
+    {
+        throw new System.NotImplementedException();
     }
 }
