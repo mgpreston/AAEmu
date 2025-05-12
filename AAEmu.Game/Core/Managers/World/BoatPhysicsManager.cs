@@ -56,7 +56,11 @@ namespace AAEmu.Game.Core.Managers.World
                 for (var x = 0; x < dx; x++)
                     for (var y = 0; y < dz; y++)
                         hmapTerrain[x, y] = (float)(hmap[x, y] / heightMaxCoefficient);
-                _physWorld.AddTerrain(hmapTerrain, 2.0f, 2.0f);
+
+                var heightmap = new Heightmap(hmapTerrain);
+                var tester = new HeightmapTester(heightmap);
+                _physWorld.BroadPhaseFilter = new HeightmapDetection(_physWorld, tester);
+                _physWorld.DynamicTree.AddProxy(tester, false);
             }
             catch (Exception e)
             {
