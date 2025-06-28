@@ -4,31 +4,14 @@ using NetCoreServer;
 
 namespace AAEmu.Commons.Network.Core;
 
-public interface ISession
-{
-    IPAddress Ip { get; }
-    uint SessionId { get; }
-    Socket Socket { get; }
-    void SendPacket(byte[] packet);
-    void AddAttribute(string name, object attribute);
-    object GetAttribute(string name);
-    void ClearAttribute(string name);
-    void Close();
-}
-
-public class Session : TcpSession, ISession
+public class Session(Server server) : TcpSession(server), ISession
 {
     private readonly Dictionary<string, object> _attributes = [];
 
-    public IBaseProtocolHandler ProtocolHandler { get; private set; }
+    public IBaseProtocolHandler ProtocolHandler { get; } = server.GetHandler();
     public IPEndPoint RemoteEndPoint { get; private set; }
     public uint SessionId { get; private set; }
     public IPAddress Ip { get; private set; }
-
-    public Session(Server server) : base(server)
-    {
-        ProtocolHandler = server.GetHandler();
-    }
 
     protected override void OnConnecting()
     {
@@ -65,23 +48,22 @@ public class Session : TcpSession, ISession
     {
     }
 
-    public virtual void SendMessage(PacketStream message)
+    public void SendPacket(ReadOnlySpan<byte> packet)
     {
-        // var stream = new PacketStream();
-        // message.Write(stream);
-        SendAsync(message);
+        SendAsync(packet);
     }
 
-    public override bool SendAsync(byte[] buffer)
+    public bool TrySend(PacketStream packet)
     {
-        // TODO send to queue
-        return SendAsync(buffer, 0L, buffer.Length);
+        throw new NotImplementedException();
     }
 
-    public void AddAttribute(string name, object attribute)
+    public ValueTask SendAsync(PacketStream packet, CancellationToken cancellationToken)
     {
-        _attributes.Add(name, attribute);
+        throw new NotImplementedException();
     }
+
+    public void AddAttribute(string name, object attribute) => _attributes.Add(name, attribute);
 
     public object GetAttribute(string name)
     {
@@ -89,18 +71,7 @@ public class Session : TcpSession, ISession
         return attribute;
     }
 
-    public void ClearAttribute(string name)
-    {
-        _attributes.Remove(name);
-    }
+    public void ClearAttribute(string name) => _attributes.Remove(name);
 
-    public void Close()
-    {
-        Disconnect();
-    }
-
-    public void SendPacket(byte[] packet)
-    {
-        SendAsync(packet);
-    }
+    public void Close() => Disconnect();
 }

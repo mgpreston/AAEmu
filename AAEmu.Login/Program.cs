@@ -1,11 +1,8 @@
-﻿using System.Reflection;
-using AAEmu.Commons.IO;
+using System.Reflection;
 using AAEmu.Commons.Utils.DB;
 using AAEmu.Login.Core.Controllers;
-using AAEmu.Login.Core.Network.Connections;
 using AAEmu.Login.Core.Network.Internal;
 using AAEmu.Login.Core.Network.Login;
-using AAEmu.Login.Core.PacketHandlers;
 using AAEmu.Login.Models;
 using AAEmu.Login.Models.Database;
 using AAEmu.Login.Utils;
@@ -68,15 +65,8 @@ public static class Program
         builder.Services.AddSingleton<ILoginController, LoginController>();
         builder.Services.AddSingleton<IRequestController, RequestController>();
 
-        builder.Services.AddSingleton<IInternalProtocolHandler, InternalProtocolHandler>();
-        builder.Services.AddSingleton<IInternalConnectionTable, InternalConnectionTable>();
-        builder.Services.AddSingleton<IInternalNetwork, InternalNetwork>();
-        builder.Services.AddSingleton<ILoginProtocolHandler, LoginProtocolHandler>();
-        builder.Services.AddSingleton<ILoginConnectionTable, LoginConnectionTable>();
-        builder.Services.AddSingleton<ILoginNetwork, LoginNetwork>();
-
-        builder.Services.AddInternalPacketHandlers();
-        builder.Services.AddLoginPacketHandlers();
+        builder.Services.AddInternal();
+        builder.Services.AddLogin();
 
         var app = builder.Build();
         await app.RunAsync();

@@ -1,13 +1,12 @@
 ﻿using System.Net;
-
-using NetCoreServer;
+using TcpClient = NetCoreServer.TcpClient;
 
 namespace AAEmu.Commons.Network.Core;
 
-public class Client : TcpClient, ISession
+public class Client(IPAddress serverAddress, int serverPort, BaseProtocolHandler handler)
+    : TcpClient(serverAddress, serverPort), ISession
 {
     private readonly Dictionary<string, object> _attributes = [];
-    private BaseProtocolHandler _handler;
     private uint _sessionId;
     private IPAddress _ip;
 
@@ -15,15 +14,19 @@ public class Client : TcpClient, ISession
 
     uint ISession.SessionId => _sessionId;
 
-    void ISession.SendPacket(byte[] packet)
+    void ISession.SendPacket(ReadOnlySpan<byte> packet) => SendAsync(packet);
+
+    public ValueTask SendAsync(PacketStream packet, CancellationToken cancellationToken)
     {
-        SendAsync(packet);
+        throw new NotImplementedException();
     }
 
-    void ISession.AddAttribute(string name, object attribute)
+    public bool TrySend(PacketStream packet)
     {
-        _attributes.Add(name, attribute);
+        throw new NotImplementedException();
     }
+
+    void ISession.AddAttribute(string name, object attribute) => _attributes.Add(name, attribute);
 
     object ISession.GetAttribute(string name)
     {
@@ -31,45 +34,19 @@ public class Client : TcpClient, ISession
         return attribute;
     }
 
-    void ISession.ClearAttribute(string name)
-    {
-        _attributes.Remove(name);
-    }
+    void ISession.ClearAttribute(string name) => _attributes.Remove(name);
 
-    void ISession.Close()
-    {
-        Disconnect();
-    }
-
-    public Client(IPAddress serverAddress, int serverPort, BaseProtocolHandler handler) : base(serverAddress, serverPort)
-    {
-        _handler = handler;
-    }
-
-    public BaseProtocolHandler GetHandler()
-    {
-        return _handler;
-    }
+    void ISession.Close() => Disconnect();
 
     protected override void OnConnected()
     {
         _sessionId = (uint)Socket.LocalEndPoint.GetHashCode();
         _ip = ((IPEndPoint)Socket.LocalEndPoint).Address;
-        _handler.OnConnect(this);
+        handler.OnConnect(this);
     }
 
-    protected override void OnDisconnected()
-    {
-        _handler.OnDisconnect(this);
-    }
+    protected override void OnDisconnected() => handler.OnDisconnect(this);
 
-    protected override void OnReceived(byte[] buffer, long offset, long size)
-    {
-        _handler.OnReceive(this, buffer, (int)offset, (int)size);
-    }
-
-    protected override void OnSent(long sent, long pending)
-    {
-        base.OnSent(sent, pending);
-    }
+    protected override void OnReceived(byte[] buffer, long offset, long size) =>
+        handler.OnReceive(this, buffer, (int)offset, (int)size);
 }

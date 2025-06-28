@@ -45,10 +45,10 @@ public class StreamConnection
 
     public void SendPacket(StreamPacket packet)
     {
-        SendPacket(packet.Encode());
+        SendPacket(packet.Encode().GetBytes());
     }
 
-    public void SendPacket(byte[] packet)
+    public void SendPacket(ReadOnlySpan<byte> packet)
     {
         _session?.SendPacket(packet);
     }

@@ -1,12 +1,12 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using AAEmu.Login.Core.Network.Connections;
 using AAEmu.Login.Core.Packets.L2C;
 using AAEmu.Login.Core.Packets.L2G;
 using AAEmu.Login.Models;
 using AAEmu.Login.Models.Database;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using NLog;
 
 namespace AAEmu.Login.Core.Controllers;
 
@@ -14,10 +14,9 @@ public class LoginController(
     IGameController gameController,
     IOptions<AppConfiguration> appConfig,
     IDbContextFactory<LoginDbContext> dbFactory,
-    TimeProvider timeProvider) : ILoginController
+    TimeProvider timeProvider,
+    ILogger<LoginController> logger) : ILoginController
 {
-    private static Logger Logger { get; } = LogManager.GetCurrentClassLogger();
-
     private readonly bool _autoAccount = appConfig.Value.AutoAccount;
 
     private readonly ConcurrentDictionary<GameServerId, ConcurrentDictionary<uint, AccountId>>
@@ -42,10 +41,7 @@ public class LoginController(
 
         // TODO ... validation password
 
-        connection.AccountId = user.Id;
-        connection.AccountName = user.Username;
-        connection.LastLogin = timeProvider.GetUtcNow().UtcDateTime;
-        connection.LastIp = connection.Ip;
+        connection.OnLogin(user.Id, user.Username, timeProvider.GetUtcNow().UtcDateTime);
 
         connection.SendPacket(new ACJoinResponsePacket(0, 6));
         connection.SendPacket(new ACAuthResponsePacket(connection.AccountId, 6));
@@ -60,7 +56,7 @@ public class LoginController(
         }
         catch (DbUpdateException ex)
         {
-            Logger.Warn(ex, "Database update failed, error occurred while updating account login IP and time");
+            LoginControllerLog.LoginDatabaseUpdateFailed(logger, ex);
         }
     }
 
@@ -81,7 +77,7 @@ public class LoginController(
             if (_autoAccount)
             {
                 user = await CreateAndLoginInvalid(dbContext, connection, username, password);
-                
+
                 // Failed to create account
                 if (user == null)
                 {
@@ -108,12 +104,9 @@ public class LoginController(
             return;
         }
 
-        connection.AccountId = user.Id;
-        connection.AccountName = username;
-        connection.LastLogin = timeProvider.GetUtcNow().UtcDateTime;
-        connection.LastIp = connection.Ip;
+        connection.OnLogin(user.Id, username, timeProvider.GetUtcNow().UtcDateTime);
 
-        Logger.Info("{0} connected.", connection.AccountName);
+        LoginControllerLog.PlayerConnected(logger, connection.AccountName);
         connection.SendPacket(new ACJoinResponsePacket(0, 6));
         connection.SendPacket(new ACAuthResponsePacket(connection.AccountId, 6));
 
@@ -127,11 +120,12 @@ public class LoginController(
         }
         catch (DbUpdateException ex)
         {
-            Logger.Warn(ex, "Database update failed, error occurred while updating account login IP and time");
+            LoginControllerLog.LoginDatabaseUpdateFailed(logger, ex);
         }
     }
 
-    private async Task<User?> CreateAndLoginInvalid(LoginDbContext dbContext, LoginConnection connection, string username,
+    private async Task<User?> CreateAndLoginInvalid(LoginDbContext dbContext, LoginConnection connection,
+        string username,
         ReadOnlyMemory<byte> password)
     {
         var pass = Convert.ToBase64String(password.Span);
@@ -159,7 +153,7 @@ public class LoginController(
             return null;
         }
 
-        Logger.Debug("Created account from invalid username login with value:" + username);
+        LoginControllerLog.AccountCreated(logger, username);
         return newUser;
     }
 
@@ -172,26 +166,26 @@ public class LoginController(
 
     public void Reconnect(LoginConnection connection, GameServerId gsId, AccountId accountId, uint token)
     {
-        if (!_tokens.ContainsKey(gsId))
+        if (!_tokens.TryGetValue(gsId, out var tokensForGameServer))
         {
-            if (gameController.TryGetParentId(gsId, out var parentId))
-                gsId = parentId;
-            else
+            if (!gameController.TryGetParentId(gsId, out var parentGameServerId))
             {
                 // TODO ...
                 return;
             }
+
+            gsId = parentGameServerId;
+            tokensForGameServer = _tokens[gsId];
         }
 
-        if (!_tokens[gsId].TryGetValue(token, out var value))
+        if (!tokensForGameServer.TryGetValue(token, out var storedAccountIdForToken))
         {
             // TODO ...
             return;
         }
 
-        if (value == accountId)
+        if (storedAccountIdForToken == accountId)
         {
-            connection.AccountId = accountId;
             connection.SendPacket(new ACJoinResponsePacket(0, 6));
             connection.SendPacket(new ACAuthResponsePacket(connection.AccountId, 6));
         }

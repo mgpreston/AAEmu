@@ -1,109 +1,102 @@
-﻿using System.Collections.Concurrent;
-using System.Globalization;
+using System.Buffers;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
-using AAEmu.Commons.Exceptions;
 using AAEmu.Commons.Network;
 using AAEmu.Commons.Network.Core;
 using AAEmu.Login.Core.Controllers;
 using AAEmu.Login.Core.Network.Connections;
 using AAEmu.Login.Models;
-using NLog;
+using AAEmu.Login.Utils;
+using Microsoft.Extensions.Logging;
 
 namespace AAEmu.Login.Core.Network.Internal;
 
 public class InternalProtocolHandler(
     IEnumerable<IInternalPacketDescriptor> packetDescriptors,
     IGameController gameController,
-    IInternalConnectionTable internalConnectionTable)
+    IInternalConnectionTable internalConnectionTable,
+    ILogger<InternalProtocolHandler> logger)
     : BaseProtocolHandler, IInternalProtocolHandler
 {
-    private static Logger Logger { get; } = LogManager.GetCurrentClassLogger();
-
     private readonly ConcurrentDictionary<ushort, IInternalPacketDescriptor> _packets =
         new(packetDescriptors.ToDictionary(d => d.TypeId));
 
     public override void OnConnect(ISession session)
     {
-        Logger.Info("GameServer from {0} connected, session id: {1}", session.Ip.ToString(),
-            session.SessionId.ToString(CultureInfo.InvariantCulture));
+        logger.LogInformation("GameServer from {IP} connected, session id: {SessionId}", session.Ip, session.SessionId);
         var con = new InternalConnection(session);
-        InternalConnection.OnConnect();
         internalConnectionTable.AddConnection(con);
     }
 
     public override void OnDisconnect(ISession session)
     {
-        Logger.Info("GameServer from {0} disconnected", session.Ip.ToString());
+        logger.LogInformation("GameServer from {IP} disconnected", session.Ip);
         if (session.GetAttribute("gsId") is { } gsId)
             gameController.Remove((GameServerId)gsId);
         internalConnectionTable.RemoveConnection(session.SessionId);
     }
 
-    public override void OnReceive(ISession session, byte[] buf, int offset, int bytes)
+    public override bool TryReceivePacket(ISession session, ref SequenceReader<byte> buffer)
     {
-        var connection = internalConnectionTable.GetConnection(session.SessionId);
-        if (connection == null)
+        try
         {
-            Logger.Error("Connection not found for session {0}", session.SessionId);
-            return;
+            var connection = internalConnectionTable.GetConnection(session.SessionId);
+            Debug.Assert(connection != null);
+            return TryReceive(connection, ref buffer);
         }
-
-        var stream = new PacketStream();
-        if (connection.LastPacket != null)
+        catch (Exception e)
         {
-            stream.Insert(0, connection.LastPacket);
-            connection.LastPacket = null;
+            session.Close();
+            logger.LogError(e, "Error while processing received data for session {SessionId}", session.SessionId);
+            return false;
         }
+    }
 
-        stream.Insert(stream.Count, buf, offset, bytes);
-        while (stream is { Count: > 0 })
+    private bool TryReceive(InternalConnection connection, ref SequenceReader<byte> reader)
+    {
+        const int MinimumPacketSize = 4; // 2 bytes for length, 2 bytes for type
+
+        try
         {
-            ushort len;
-            try
+            // Check there's enough data to read a packet length and type.
+            if (reader.Remaining < MinimumPacketSize)
             {
-                len = stream.ReadUInt16();
-            }
-            catch (MarshalException)
-            {
-                //Logger.Warn("Error on reading type {0}", type);
-                stream.Rollback();
-                connection.LastPacket = stream;
-                stream = null;
-                continue;
+                return false;
             }
 
-            var packetLen = len + stream.Pos;
-            if (packetLen <= stream.Count)
-            {
-                stream.Rollback();
-                var stream2 = new PacketStream();
-                stream2.Replace(stream, 0, packetLen);
-                if (stream.Count > packetLen)
-                {
-                    var stream3 = new PacketStream();
-                    stream3.Replace(stream, packetLen, stream.Count - packetLen);
-                    stream = stream3;
-                }
-                else
-                    stream = null;
+            var readLength = reader.TryReadLittleEndian(out ushort length);
+            Debug.Assert(readLength);
 
-                stream2.ReadUInt16();
-                var type = stream2.ReadUInt16();
-                if (!_packets.TryGetValue(type, out var packetDescriptor))
-                {
-                    HandleUnknownPacket(session, type, stream2);
-                }
-                else
-                {
-                    Dispatch(packetDescriptor, stream2, connection);
-                }
+            if (reader.Remaining < length)
+            {
+                return false;
+            }
+
+            var readType = reader.TryReadLittleEndian(out ushort type);
+            Debug.Assert(readType);
+
+            var readData = reader.TryReadExact(length - 2, out var data);
+            Debug.Assert(readData);
+
+            var stream = new PacketStream();
+            stream.Insert(stream.Count, data.ToArray()); // todo: avoid this copy
+            if (!_packets.TryGetValue(type, out var packetDescriptor))
+            {
+                HandleUnknownPacket(connection, type, stream);
             }
             else
             {
-                stream.Rollback();
-                connection.LastPacket = stream;
-                stream = null;
+                Dispatch(packetDescriptor, stream, connection);
             }
+
+            return true;
+        }
+        catch (Exception e)
+        {
+            connection.Shutdown();
+            logger.LogError(e, "Error while processing received data for connection {ConnectionId}", connection.Id);
+            return false;
         }
     }
 
@@ -121,16 +114,16 @@ public class InternalProtocolHandler(
             }
             catch (Exception e)
             {
-                Logger.Error(e, "Error on packet dispatch {0}", packetDescriptor.TypeId);
+                logger.LogError(e, "Error on packet dispatch {PacketTypeId}", packetDescriptor.TypeId);
             }
         }
     }
 
-    private static void HandleUnknownPacket(ISession session, uint type, PacketStream stream)
+    private void HandleUnknownPacket(InternalConnection connection, uint type, PacketStream stream)
     {
         var dump = new StringBuilder();
         for (var i = stream.Pos; i < stream.Count; i++)
             dump.Append($"{stream.Buffer[i]:x2} ");
-        Logger.Error("Unknown packet 0x{0:x2} from {1}:\n{2}", type, session.Ip, dump);
+        logger.LogError("Unknown packet 0x{TypeId:x2} from {IPAddress}:\n{HexDump}", type, connection.Ip, dump);
     }
 }

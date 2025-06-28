@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using AAEmu.Login.Models;
 
 namespace AAEmu.Login.Core.Network.Connections;

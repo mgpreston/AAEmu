@@ -1,35 +1,20 @@
-﻿using System.Net;
-using AAEmu.Commons.Network.Core;
-using AAEmu.Login.Models;
-using Microsoft.Extensions.Options;
-using NLog;
+using Microsoft.Extensions.Logging;
 
 namespace AAEmu.Login.Core.Network.Internal;
 
-public class InternalNetwork(IInternalProtocolHandler protocolHandler, IOptions<AppConfiguration> appConfig)
-    : IInternalNetwork
+public class InternalNetwork(IInternalServer server, ILogger<InternalNetwork> logger) : IInternalNetwork
 {
-    private static Logger Logger { get; } = LogManager.GetCurrentClassLogger();
-
-    private Server? _server;
-
     public void Start()
     {
-        var config = appConfig.Value.InternalNetwork;
-        var host =
-            new IPEndPoint(config.Host.Equals("*") ? IPAddress.Any : IPAddress.Parse(config.Host), config.Port);
+        server.Start();
 
-        _server = new Server(host.Address, host.Port, protocolHandler);
-        _server.Start();
-
-        Logger.Info("InternalNetwork started");
+        logger.LogInformation("InternalNetwork started");
     }
 
-    public void Stop()
+    public async Task StopAsync()
     {
-        if (_server?.IsStarted == true)
-            _server.Stop();
+        await server.ShutdownAsync();
 
-        Logger.Info("InternalNetwork stoped");
+        logger.LogInformation("InternalNetwork stopped");
     }
 }

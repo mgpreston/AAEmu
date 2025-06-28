@@ -1,4 +1,4 @@
-﻿using AAEmu.Login.Core.Network.Internal;
+using AAEmu.Login.Core.Network.Internal;
 using AAEmu.Login.Core.Network.Login;
 using AAEmu.Login.Core.PacketHandlers.C2L;
 using AAEmu.Login.Core.PacketHandlers.G2L;
@@ -10,9 +10,9 @@ namespace AAEmu.Login.Core.PacketHandlers;
 
 public static class ServiceCollectionExtensions
 {
-    public static void AddInternalPacketHandlers(this IServiceCollection services)
+    public static IServiceCollection AddInternalPacketHandlers(this IServiceCollection services)
     {
-        services
+        return services
             .AddInternalPacket<GLRegisterGameServerPacket, GLRegisterGameServerPacketHandler>()
             .AddInternalPacket<GLRequestInfoPacket, GLRequestInfoPacketHandler>()
             .AddInternalPacket<GLPlayerReconnectPacket, GLPlayerReconnectPacketHandler>()
@@ -20,9 +20,9 @@ public static class ServiceCollectionExtensions
             .AddInternalPacket<GLGameServerLoadPacket, GLGameServerLoadPacketHandler>();
     }
 
-    public static void AddLoginPacketHandlers(this IServiceCollection services)
+    public static IServiceCollection AddLoginPacketHandlers(this IServiceCollection services)
     {
-        services
+        return services
             .AddLoginPacket<CACancelEnterWorldPacket, CACancelEnterWorldPacketHandler>()
             .AddLoginPacket<CAChallengeResponse2Packet, CAChallengeResponse2PacketHandler>()
             .AddLoginPacket<CAChallengeResponsePacket, CAChallengeResponsePacketHandler>()

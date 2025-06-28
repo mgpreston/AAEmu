@@ -1,4 +1,4 @@
-﻿using AAEmu.Commons.Utils.DB;
+using AAEmu.Commons.Utils.DB;
 using AAEmu.Login.Models;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -9,7 +9,7 @@ namespace AAEmu.Login.Utils;
 public class MySqlInitializer(IOptions<AppConfiguration> appConfig) : BackgroundService
 {
     private static Logger Logger { get; } = LogManager.GetCurrentClassLogger();
-    
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         MySQL.SetConfiguration(appConfig.Value.Connections.MySQLProvider);

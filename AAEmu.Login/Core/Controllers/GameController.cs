@@ -8,8 +8,8 @@ using AAEmu.Login.Core.Packets.L2G;
 using AAEmu.Login.Models;
 using AAEmu.Login.Models.Database;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using NLog;
 using GameServer = AAEmu.Login.Models.GameServer;
 
 namespace AAEmu.Login.Core.Controllers;
@@ -17,10 +17,9 @@ namespace AAEmu.Login.Core.Controllers;
 public class GameController(
     IRequestController requestController,
     IOptions<AppConfiguration> appConfig,
-    IDbContextFactory<LoginDbContext> dbFactory)
-    : IGameController
+    IDbContextFactory<LoginDbContext> dbFactory,
+    ILogger<GameController> logger) : IGameController
 {
-    private static Logger Logger { get; } = LogManager.GetCurrentClassLogger();
     private readonly ConcurrentDictionary<GameServerId, GameServer> _gameServers = [];
     private readonly Dictionary<GameServerId, GameServerId> _mirrorsId = [];
 
@@ -32,26 +31,24 @@ public class GameController(
         connection.SendPacket(message);
     }
 
-    private static string ResolveHostName(string host)
+    private async Task<string> ResolveHostName(string host)
     {
         try
         {
-            var parsedHost = Dns.GetHostEntry(host);
-            var firstIPv4Address =
-                parsedHost.AddressList.FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork);
-            if (firstIPv4Address != null)
+            var addresses = await Dns.GetHostAddressesAsync(host, AddressFamily.InterNetwork);
+            if (addresses is [var firstIPv4Address, ..])
             {
-                Logger.Debug($"Resolved {host} to {firstIPv4Address}");
+                logger.LogDebug("Resolved {Host} to {FirstIPv4Address}", host, firstIPv4Address);
                 return firstIPv4Address.ToString();
             }
 
-            Logger.Warn($"Unable to resolved {host}");
+            logger.LogWarning("Unable to resolve {Host}", host);
             return host;
         }
         catch (Exception e)
         {
             // in case of errors, just return it un-parsed
-            Logger.Error(e, $"Exception resolving {host}: {e.Message}");
+            logger.LogError(e, "Exception resolving {Host}", host);
             return host;
         }
     }
@@ -63,39 +60,41 @@ public class GameController(
             .AsNoTracking()
             .Where(gs => !gs.Hidden)
             .ToListAsync();
-        
+
         foreach (var dbGameServer in gameServers)
         {
-            var host = appConfig.Value.SkipHostResolve ? dbGameServer.Host : ResolveHostName(dbGameServer.Host);
+            var host = appConfig.Value.SkipHostResolve ? dbGameServer.Host : await ResolveHostName(dbGameServer.Host);
             var gameServer = new GameServer(dbGameServer.Id, dbGameServer.Name, host, dbGameServer.Port);
             if (!_gameServers.TryAdd(gameServer.Id, gameServer))
             {
-                Logger.Error("Game Server {id} ({name}) already exists in the game_servers table!", gameServer.Id.Value,
+                logger.LogError("Game Server {Id} ({Name}) already exists in the game_servers table!",
+                    gameServer.Id.Value,
                     gameServer.Name);
             }
 
             var extraInfo = host != dbGameServer.Host ? "from " + dbGameServer.Host :
                 appConfig.Value.SkipHostResolve ? " (unresolved)" : "";
-            Logger.Info($"Game Server {dbGameServer.Id.Value}: {dbGameServer.Name} -> {host}:{dbGameServer.Port} {extraInfo}");
+            logger.LogInformation("Game Server {Id}: {Name} -> {Host}:{Port} {ExtraInfo}", dbGameServer.Id.Value,
+                dbGameServer.Name, host, dbGameServer.Port, extraInfo);
         }
 
         if (_gameServers.IsEmpty)
         {
-            Logger.Fatal("No servers have been defined in the game_servers table!");
+            logger.LogCritical("No servers have been defined in the game_servers table!");
             return;
         }
 
-        Logger.Info($"Loaded {_gameServers.Count} game server(s)");
+        logger.LogInformation("Loaded {GameServersCount} game server(s)", _gameServers.Count);
     }
 
     public void Add(GameServerId gsId, List<GameServerId> mirrorsId, InternalConnection connection)
     {
         if (!_gameServers.TryGetValue(gsId, out var gameServer))
         {
-            Logger.Error($"GameServer connection from {connection.Ip} is requesting an invalid WorldId {gsId}");
+            logger.LogError("GameServer connection from {ConnectionIp} is requesting an invalid WorldId {GameServerId}",
+                connection.Ip, gsId);
 
-            Task.Run(() =>
-                SendPacketWithDelay(connection, 5000, new LGRegisterGameServerPacket(GSRegisterResult.Error)));
+            _ = SendPacketWithDelay(connection, 5000, new LGRegisterGameServerPacket(GSRegisterResult.Error));
             // connection.SendPacket(new LGRegisterGameServerPacket(GSRegisterResult.Error));
             return;
         }
@@ -112,7 +111,8 @@ public class GameController(
             _mirrorsId.Add(mirrorId, gsId);
         }
 
-        Logger.Info($"Registered GameServer {gameServer.Id.Value} ({gameServer.Name}) from {connection.Ip}");
+        logger.LogInformation("Registered GameServer {IdValue} ({GameServerName}) from {ConnectionIp}",
+            gameServer.Id.Value, gameServer.Name, connection.Ip);
     }
 
     public void Remove(GameServerId gsId)

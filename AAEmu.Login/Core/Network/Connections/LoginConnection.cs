@@ -1,61 +1,36 @@
-﻿using System.Net;
+using System.Diagnostics.CodeAnalysis;
+using System.Net;
 using AAEmu.Commons.Models;
-using AAEmu.Commons.Network;
 using AAEmu.Commons.Network.Core;
 using AAEmu.Login.Core.Network.Login;
 using AAEmu.Login.Models;
 
 namespace AAEmu.Login.Core.Network.Connections;
 
-public class LoginConnection
+public class LoginConnection(ISession session)
 {
-    private readonly ISession _session;
+    public ConnectionId Id => new(session.SessionId);
+    public IPAddress Ip => session.Ip;
 
-    public ConnectionId Id => new(_session.SessionId);
-    public IPAddress Ip => _session.Ip;
-    public InternalConnection? InternalConnection { get; set; }
-    public PacketStream? LastPacket { get; set; }
+    public AccountId AccountId { get; private set; }
+    public string? AccountName { get; private set; }
+    public DateTime LastLogin { get; private set; }
+    public IPAddress? LastIp { get; private set; }
+    public bool IsLocallyConnected { get; } = IsSameMachine(session);
 
-    public AccountId AccountId { get; set; }
-    public string? AccountName { get; set; }
-    public DateTime LastLogin { get; set; }
-    public IPAddress? LastIp { get; set; }
-    public bool IsLocallyConnected { get; private set; }
+    public Dictionary<GameServerId, List<LoginCharacterInfo>> Characters { get; } = [];
 
-    public Dictionary<GameServerId, List<LoginCharacterInfo>> Characters { get; }
-
-    public LoginConnection(ISession session)
+    private static bool IsSameMachine(ISession session)
     {
-        _session = session;
-
         // checks if a connection is from the same machine
-        var localIp = session?.Socket?.LocalEndPoint?.ToString() ?? "local:0";
-        var remoteIp = session?.Socket?.RemoteEndPoint?.ToString() ?? "remote:0";
-        localIp = localIp[..localIp.IndexOf(':')];
-        remoteIp = remoteIp[..remoteIp.IndexOf(':')];
-        IsLocallyConnected = localIp == remoteIp;
-
-        Characters = [];
+        var localIp = ((IPEndPoint?)session.Socket?.LocalEndPoint)?.Address;
+        var remoteIp = ((IPEndPoint?)session.Socket?.RemoteEndPoint)?.Address;
+        return Equals(localIp, remoteIp);
     }
 
-    public void SendPacket(LoginPacket packet)
-    {
-        SendPacket(packet.Encode());
-    }
+    public void SendPacket(LoginPacket packet) => session.TrySend(packet.Encode());
 
-    public void SendPacket(byte[] packet)
-    {
-        _session.SendPacket(packet);
-    }
-
-    public static void OnConnect()
-    {
-    }
-
-    public void Shutdown()
-    {
-        _session.Close();
-    }
+    public void Shutdown() => session.Close();
 
     public List<LoginCharacterInfo> GetCharacters()
     {
@@ -72,5 +47,15 @@ public class LoginConnection
         foreach (var character in characterInfos)
             character.GsId = gsId.Value;
         Characters.Add(gsId, characterInfos);
+    }
+
+    [MemberNotNull(nameof(LastIp))]
+    [MemberNotNull(nameof(AccountName))]
+    public void OnLogin(AccountId accountId, string username, DateTime lastLogin)
+    {
+        AccountId = accountId;
+        AccountName = username;
+        LastLogin = lastLogin;
+        LastIp = Ip;
     }
 }

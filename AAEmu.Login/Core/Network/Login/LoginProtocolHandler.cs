@@ -1,145 +1,114 @@
-﻿using System.Collections.Concurrent;
+using System.Buffers;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
-
-using AAEmu.Commons.Exceptions;
 using AAEmu.Commons.Network;
 using AAEmu.Commons.Network.Core;
 using AAEmu.Login.Core.Network.Connections;
 using AAEmu.Login.Models;
-using NLog;
+using AAEmu.Login.Utils;
+using Microsoft.Extensions.Logging;
 
 namespace AAEmu.Login.Core.Network.Login;
 
 public class LoginProtocolHandler(
     IEnumerable<ILoginPacketDescriptor> packetDescriptors,
-    ILoginConnectionTable loginConnectionTable) : BaseProtocolHandler, ILoginProtocolHandler
+    ILoginConnectionTable loginConnectionTable,
+    ILogger<LoginProtocolHandler> logger) : BaseProtocolHandler, ILoginProtocolHandler
 {
-    private static Logger Logger { get; } = LogManager.GetCurrentClassLogger();
-
     private readonly ConcurrentDictionary<ushort, ILoginPacketDescriptor> _packets =
         new(packetDescriptors.ToDictionary(d => d.TypeId));
 
     public override void OnConnect(ISession session)
     {
-        Logger.Debug($"Connection from {session.Ip} established, session id: {session.SessionId}");
+        logger.LogDebug("Connection from {SessionIp} established, session id: {SessionId}", session.Ip, session.SessionId);
         try
         {
-            var con = new LoginConnection(session);
-            LoginConnection.OnConnect();
-            loginConnectionTable.AddConnection(con);
+            var loginConnection = new LoginConnection(session);
+            loginConnectionTable.AddConnection(loginConnection);
         }
         catch (Exception e)
         {
             session.Close();
-            Logger.Error(e);
+            logger.LogError(e, "Error while adding connection for session {SessionId}", session.SessionId);
         }
     }
 
     public override void OnDisconnect(ISession session)
     {
-        if (session is null)
-        {
-            Logger.Error("Unexpected null Session");
-            return;
-        }
-
         try
         {
-            var con = loginConnectionTable.GetConnection(new ConnectionId(session.SessionId));
-            if (con != null)
-                loginConnectionTable.RemoveConnection(new ConnectionId(session.SessionId));
+            loginConnectionTable.RemoveConnection(new ConnectionId(session.SessionId));
         }
         catch (Exception e)
         {
             session.Close();
-            Logger.Error(e);
+            logger.LogError(e, "Error while removing connection for session {SessionId}", session.SessionId);
         }
 
-        Logger.Debug($"Client from {session.Ip} disconnected");
+        logger.LogDebug("Client from {SessionIp} disconnected", session.Ip);
     }
 
-    public override void OnReceive(ISession session, byte[] buf, int offset, int bytes)
+    public override bool TryReceivePacket(ISession session, ref SequenceReader<byte> buffer)
     {
         try
         {
             var connection = loginConnectionTable.GetConnection(new ConnectionId(session.SessionId));
-            if (connection == null)
-                return;
-            OnReceive(connection, buf, offset, bytes);
+            Debug.Assert(connection != null);
+            return TryReceive(connection, ref buffer);
         }
         catch (Exception e)
         {
             session.Close();
-            Logger.Error(e);
+            logger.LogError(e, "Error while processing received data for session {SessionId}", session.SessionId);
+            return false;
         }
     }
 
-    public void OnReceive(LoginConnection connection, byte[] buf, int offset, int bytes)
+    private bool TryReceive(LoginConnection connection, ref SequenceReader<byte> reader)
     {
+        const int MinimumPacketSize = 4; // 2 bytes for length, 2 bytes for type
+
         try
         {
+            // Check there's enough data to read a packet length and type.
+            if (reader.Remaining < MinimumPacketSize)
+            {
+                return false;
+            }
+
+            var readLength = reader.TryReadLittleEndian(out ushort length);
+            Debug.Assert(readLength);
+
+            if (reader.Remaining < length)
+            {
+                return false;
+            }
+
+            var readType = reader.TryReadLittleEndian(out ushort type);
+            Debug.Assert(readType);
+
+            var readData = reader.TryReadExact(length - 2, out var data);
+            Debug.Assert(readData);
+
             var stream = new PacketStream();
-            if (connection.LastPacket != null)
+            stream.Insert(stream.Count, data.ToArray()); // todo: avoid this copy
+            if (!_packets.TryGetValue(type, out var packetDescriptor))
             {
-                stream.Insert(0, connection.LastPacket);
-                connection.LastPacket = null;
+                HandleUnknownPacket(connection, type, stream);
+            }
+            else
+            {
+                Dispatch(packetDescriptor, stream, connection);
             }
 
-            stream.Insert(stream.Count, buf, 0, bytes);
-            while (stream is { Count: > 0 })
-            {
-                ushort len;
-                try
-                {
-                    len = stream.ReadUInt16();
-                }
-                catch (MarshalException)
-                {
-                    //Logger.Warn("Error on reading type {0}", type);
-                    stream.Rollback();
-                    connection.LastPacket = stream;
-                    stream = null;
-                    continue;
-                }
-
-                var packetLen = len + stream.Pos;
-                if (packetLen <= stream.Count)
-                {
-                    stream.Rollback();
-                    var stream2 = new PacketStream();
-                    stream2.Replace(stream, 0, packetLen);
-                    if (stream.Count > packetLen)
-                    {
-                        var stream3 = new PacketStream();
-                        stream3.Replace(stream, packetLen, stream.Count - packetLen);
-                        stream = stream3;
-                    }
-                    else
-                        stream = null;
-
-                    stream2.ReadUInt16(); //len
-                    var type = stream2.ReadUInt16();
-                    if (!_packets.TryGetValue(type, out var packetDescriptor))
-                    {
-                        HandleUnknownPacket(connection, type, stream2);
-                    }
-                    else
-                    {
-                        Dispatch(packetDescriptor, stream2, connection);
-                    }
-                }
-                else
-                {
-                    stream.Rollback();
-                    connection.LastPacket = stream;
-                    stream = null;
-                }
-            }
+            return true;
         }
         catch (Exception e)
         {
             connection.Shutdown();
-            Logger.Error(e);
+            logger.LogError(e, "Error while processing received data for connection {ConnectionId}", connection.Id);
+            return false;
         }
     }
 
@@ -156,16 +125,16 @@ public class LoginProtocolHandler(
             }
             catch (Exception e)
             {
-                Logger.Error(e, "Error on packet dispatch {0}", packetDescriptor.TypeId);
+                logger.LogError(e, "Error on packet dispatch {TypeId}", packetDescriptor.TypeId);
             }
         }
     }
 
-    private static void HandleUnknownPacket(LoginConnection connection, uint type, PacketStream stream)
+    private void HandleUnknownPacket(LoginConnection connection, ushort type, PacketStream stream)
     {
         var dump = new StringBuilder();
         for (var i = stream.Pos; i < stream.Count; i++)
             dump.Append($"{stream.Buffer[i]:x2} ");
-        Logger.Error("Unknown packet 0x{0:x2} from {1}:\n{2}", (object)type, (object)connection.Ip, (object)dump);
+        logger.LogError("Unknown packet 0x{TypeId:x2} from {IPAddress}:\n{HexDump}", type, connection.Ip, dump);
     }
 }

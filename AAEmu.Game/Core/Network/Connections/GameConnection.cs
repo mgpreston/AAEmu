@@ -13,14 +13,13 @@ namespace AAEmu.Game.Core.Network.Connections;
 
 public class GameConnection
 {
-    private ISession _session;
+    private readonly ISession _session;
 
     public uint Id => _session.SessionId;
     public uint AccountId { get; set; }
     public IPAddress Ip => _session.Ip;
     public PacketStream LastPacket { get; set; }
     public AccountPayment Payment { get; set; }
-    public int PacketCount { get; set; }
     public List<IDisposable> Subscribers { get; set; }
     public GameState State { get; set; }
     public Character ActiveChar { get; set; }
@@ -48,14 +47,14 @@ public class GameConnection
     public void SendPacket(GamePacket packet)
     {
         packet.Connection = this;
-        SendPacket(packet.Encode());
+        SendPacket(packet.Encode().GetBytes());
     }
 
     /// <summary>
     /// Sends RAW packet data to the active connection
     /// </summary>
     /// <param name="packet"></param>
-    private void SendPacket(byte[] packet)
+    private void SendPacket(ReadOnlySpan<byte> packet)
     {
         _session?.SendPacket(packet);
     }

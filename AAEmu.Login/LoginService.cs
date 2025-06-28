@@ -1,4 +1,4 @@
-﻿using AAEmu.Commons.Utils.DB;
+using AAEmu.Commons.Utils.DB;
 using AAEmu.Commons.Utils.Updater;
 using AAEmu.Login.Core.Controllers;
 using AAEmu.Login.Core.Network.Internal;
@@ -7,6 +7,7 @@ using AAEmu.Login.Models;
 using AAEmu.Login.Models.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NLog;
 
@@ -18,33 +19,32 @@ public sealed class LoginService(
     IInternalNetwork internalNetwork,
     ILoginNetwork loginNetwork,
     IOptions<AppConfiguration> appConfig,
-    IDbContextFactory<LoginDbContext> dbContextFactory) : IHostedService, IDisposable
+    IDbContextFactory<LoginDbContext> dbContextFactory,
+    ILogger<LoginService> logger) : IHostedService, IDisposable
 {
-    private static Logger Logger { get; } = LogManager.GetCurrentClassLogger();
-
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        Logger.Info("Starting daemon: AAEmu.Login");
+        logger.LogInformation("Starting daemon: AAEmu.Login");
         // Check for updates
         using (var connection = MySQL.CreateConnection())
         {
             if (!MySqlDatabaseUpdater.Run(connection, "aaemu_login",
                     appConfig.Value.Connections.MySQLProvider.Database))
             {
-                Logger.Fatal("Failed up update database !");
-                Logger.Fatal("Press Ctrl+C to quit");
+                logger.LogCritical("Failed to update database!");
+                logger.LogCritical("Press Ctrl+C to quit");
                 return;
             }
         }
 
         // Apply EF Core migrations after the old-style updates
-        Logger.Debug("Performing EF Core migrations...");
+        logger.LogDebug("Performing EF Core migrations...");
         await using (var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken))
         {
             // Ensure database is created and migrations are applied
             await dbContext.Database.MigrateAsync(cancellationToken: cancellationToken);
         }
-        Logger.Debug("EF Core migrations done");
+        logger.LogDebug("EF Core migrations done");
 
         requestController.Initialize();
         await gameController.LoadAsync();
@@ -52,17 +52,16 @@ public sealed class LoginService(
         internalNetwork.Start();
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        Logger.Info("Stopping daemon.");
-        loginNetwork.Stop();
-        internalNetwork.Stop();
-        return Task.CompletedTask;
+        logger.LogInformation("Stopping daemon.");
+        await loginNetwork.StopAsync();
+        await internalNetwork.StopAsync();
     }
 
     public void Dispose()
     {
-        Logger.Info("Disposing....");
+        logger.LogInformation("Disposing....");
         LogManager.Flush();
     }
 }
